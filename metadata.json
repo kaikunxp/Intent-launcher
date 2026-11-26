@@ -1,0 +1,6 @@
+{
+  "name": "Remote Launcher",
+  "description": "Direct launcher shortcut for the Google TV Remote devices activity.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

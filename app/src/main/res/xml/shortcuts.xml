@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="configure_intent"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_select_intent_short"
+        android:shortcutLongLabel="@string/shortcut_select_intent_long">
+        <intent
+            android:action="com.example.action.CONFIGURE_INTENT"
+            android:targetPackage="com.aistudio.tvremotelauncher.kqvmxz"
+            android:targetClass="com.example.MainActivity" />
+    </shortcut>
+</shortcuts>
