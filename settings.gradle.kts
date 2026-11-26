@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Remote Launcher"
+rootProject.name = "Button Intent Launcher"
 
 include(":app")

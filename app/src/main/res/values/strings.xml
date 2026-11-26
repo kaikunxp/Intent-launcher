@@ -1,10 +1,10 @@
 <resources>
-    <string name="app_name">Remote Launcher</string>
+    <string name="app_name">Button Intent Launcher</string>
     <string name="shortcut_select_intent_short">Select Intent</string>
     <string name="shortcut_select_intent_long">Choose Target Intent</string>
-    <string name="launcher_badge">INTENT LAUNCHER</string>
+    <string name="launcher_badge">BUTTON INTENT LAUNCHER</string>
     <string name="status_configure_title">Pick an App, Intent, or ADB Command</string>
-    <string name="status_configure_message">Pick an app intent, Quick Settings tile, or ADB command below, then tap Save or Save &amp; Launch. Once saved, opening Remote Launcher immediately launches it (long-press the app icon → Select Intent to change it later).</string>
+    <string name="status_configure_message">Pick an app intent, Quick Settings tile, or ADB command below, then tap Save or Save &amp; Launch. Once saved, opening Button Intent Launcher immediately launches it (long-press the app icon → Select Intent to change it later).</string>
     <string name="status_launching_title">Launching Target…</string>
     <string name="status_launching_message">Forwarding directly to your selected intent.</string>
     <string name="status_not_installed_title">Target App Not Installed</string>
@@ -98,7 +98,7 @@
     <string name="snackbar_shevery_launch_failed">Unable to open Shevery on this device</string>
     <string name="snackbar_shevery_granted">Shevery / Shizuku permission granted</string>
     <string name="snackbar_internal_activity_warning">Selected internal activity may be blocked by Android unless Shevery / Shizuku is enabled.</string>
-    <string name="cd_remote_icon">Intent Launcher status icon</string>
+    <string name="cd_remote_icon">Button Intent Launcher status icon</string>
     <string name="cd_copy_component">Copy target component name</string>
     <string name="cd_launch_icon">Launch selected intent</string>
     <string name="cd_external_app_icon">Open external app</string>

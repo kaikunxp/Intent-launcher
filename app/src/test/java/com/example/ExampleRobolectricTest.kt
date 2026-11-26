@@ -22,10 +22,10 @@ import org.robolectric.annotation.Config
 class ExampleRobolectricTest {
 
     @Test
-    fun `app name matches Remote Launcher`() {
+    fun `app name matches Button Intent Launcher`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("Remote Launcher", appName)
+        assertEquals("Button Intent Launcher", appName)
     }
 
     @Test

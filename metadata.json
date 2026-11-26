@@ -1,6 +1,6 @@
 {
-  "name": "Remote Launcher",
-  "description": "Direct launcher shortcut for the Google TV Remote devices activity.",
+  "name": "Button Intent Launcher",
+  "description": "Launch any Android app, intent, Activity, Quick Settings tile, or ADB command in one tap, with native-first execution and optional Shizuku / Shevery fallback.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
