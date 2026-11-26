@@ -1,39 +1,39 @@
 # Button Intent Launcher
 
-**Button Intent Launcher** is a lightweight Android utility that turns any app, specific Activity, Intent, Quick Settings tile, or `adb shell` command into a one-tap launcher shortcut — with **native-first execution** and optional **Shizuku / Shevery** fallback for restricted system targets.
+**Button Intent Launcher** is a lightweight Android utility that turns any app, specific Activity, Intent, Quick Settings tile, or `adb shell` command into a one-tap launcher shortcut — with **preflight compatibility detection**, **native-first execution**, and optional **Shizuku / Shevery** fallback for restricted system targets.
 
 ---
 
 ## Download APK
 
-- **Latest APK (v7.0):** [**Download `ButtonIntentLauncher-v7.0.apk`**](releases/ButtonIntentLauncher-v7.0.apk)
-- Or download automated builds from the **Releases** / **Actions** tabs once pushed to GitHub.
+- **Latest APK (v8.0):** [**Download `ButtonIntentLauncher-v8.0.apk`**](releases/ButtonIntentLauncher-v8.0.apk)
 
-> **Install note:** Enable *Install unknown apps* if installing directly on Android. The APK is signed consistently so future builds update in place.
+> **Install note:** Enable *Install unknown apps* if installing directly on Android. Updating from an earlier build keeps your saved target intact.
 
 ---
 
 ## Screenshots
 
-| App & Intent Browser | Custom ADB & Auto-Launch | Native-First Shizuku Prompt |
-| :---: | :---: | :---: |
-| <img src="docs/screenshots/app-picker.jpg" alt="App and intent browser screen" width="260" /> | <img src="docs/screenshots/custom-adb.jpg" alt="Custom ADB command paste box and toggles" width="260" /> | <img src="docs/screenshots/shizuku-prompt.jpg" alt="Shizuku or Shevery required dialog" width="260" /> |
+| Presets & Shizuku Locking | Per-App Intents Inspector | Custom ADB & Auto-Launch | Shizuku / Shevery Prompt |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/home-presets.jpg" alt="Presets tab showing native-ready items and dimmed Shizuku-locked items" width="210" /> | <img src="docs/screenshots/intents-sheet.jpg" alt="App intents bottom sheet with Exported and Shizuku / Shevery badges" width="210" /> | <img src="docs/screenshots/custom-adb.jpg" alt="Custom ADB command paste box and auto-launch switches" width="210" /> | <img src="docs/screenshots/shizuku-prompt.jpg" alt="Shizuku or Shevery required dialog over dimmed tiles" width="210" /> |
 
 ---
 
 ## Features
 
-- **Native-First Launch Order**
+- **Preflight Compatibility & Visual Gating**
+  - Checks `PackageManager` upfront (`exported` state, required system permissions, Quick Settings tiles, and shell extras) so you know immediately what works without Shizuku.
+  - Items that require privileged execution appear dimmed with a **`Shizuku / Shevery`** lock badge across the **Intents sheet**, **Tiles tab**, and **Presets tab** until Shizuku or Shevery is installed and connected.
+  - Tapping a locked item displays a tailored setup hint with shortcuts to install or open **Shizuku** / **Shevery**.
+- **Native-First Execution**
   - Always tries launching your target directly using Android's standard `startActivity` first — **no Shizuku or Shevery needed** for normal apps, URLs, and exported activities.
   - Only falls back to **Shizuku / Shevery** if Android denies permission (private/unexported activities, Quick Settings tiles, or custom ADB extra flags).
-  - If a target is blocked natively and neither Shizuku nor Shevery is installed, an explanatory prompt guides you directly to install **Shizuku** or **Shevery**.
 - **Auto-Launch on Open**
   - Once you select and save a target, opening **Button Intent Launcher** immediately jumps straight to that target and closes the launcher task.
   - To change your target later, long-press the **Button Intent Launcher** app icon and tap **Select Intent** (or toggle off *Auto-launch when app opens* in the **Custom** tab).
 - **App & Intent Inspector**
   - Browse installed apps, launch their main entry, or tap **Intents** to inspect every discovered intent, Quick Settings tile, and declared Activity (with an *Exported only* filter).
-- **Quick Settings Tiles & Presets**
-  - Pick from discovered `TileService` entries (`cmd statusbar click-tile`) or built-in presets like Google TV, Google Home, Developer Options, Wireless Debugging, Connected Devices, and Notification History.
 - **Paste ADB Commands & Intents**
   - Paste full `adb shell am start ...`, `cmd statusbar click-tile ...`, `intent:#Intent;...;end`, or `package/.Activity` strings directly into the **Custom** tab with live parsing.
 
@@ -41,11 +41,11 @@
 
 ## How Privileged Fallback Works (Optional)
 
-Standard apps and exported activities work out of the box without any extra tools. For unexported system activities, Quick Settings tiles, or extra ADB flags (`--es`, `--ez`, etc.):
+Standard apps and exported activities work out of the box without any extra tools. For unexported system activities, permission-protected activities, Quick Settings tiles, or extra ADB flags (`--es`, `--ez`, etc.):
 
 1. Install [**Shizuku**](https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api) (or [**Shevery**](https://github.com/HmnDev-Tech/shevery/releases) with its Shizuku Compatibility Stub enabled).
-2. Start the Shizuku / Shevery service.
-3. Launch your blocked target in Button Intent Launcher — after Android denies native access, Button Intent Launcher automatically prompts for Shizuku permission and runs the target via its privileged user service.
+2. Start the Shizuku / Shevery service — dimmed items across the **Intents sheet**, **Tiles tab**, and **Presets tab** unlock automatically once connected.
+3. Launch your target in **Button Intent Launcher** — after Android denies native access, it prompts for Shizuku permission on demand and runs the target via its privileged user service.
 
 ---
 
