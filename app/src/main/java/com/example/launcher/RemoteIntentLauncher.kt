@@ -13,7 +13,22 @@ import android.net.Uri
 import android.os.Build
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
+
+enum class ShizukuRequirementReason {
+    NONE,
+    UNEXPORTED_ACTIVITY,
+    PERMISSION_REQUIRED,
+    QUICK_SETTINGS_TILE,
+    SHELL_EXTRA_FLAGS,
+}
+
+data class PreflightResult(
+    val requiresShizuku: Boolean,
+    val reason: ShizukuRequirementReason = ShizukuRequirementReason.NONE,
+    val requiredPermission: String? = null,
+)
 
 data class InstalledAppInfo(
     val label: String,
@@ -28,6 +43,10 @@ data class PackageActivityInfo(
     val shortName: String,
     val label: String,
     val exported: Boolean,
+    val requiredPermission: String? = null,
+    val requiresShizuku: Boolean = !exported,
+    val shizukuReason: ShizukuRequirementReason =
+        if (!exported) ShizukuRequirementReason.UNEXPORTED_ACTIVITY else ShizukuRequirementReason.NONE,
 )
 
 data class AppIntentEntry(
@@ -42,6 +61,10 @@ data class AppIntentEntry(
     val category: String = "",
     val mimeType: String = "",
     val exported: Boolean = true,
+    val requiredPermission: String? = null,
+    val requiresShizuku: Boolean = !exported,
+    val shizukuReason: ShizukuRequirementReason =
+        if (!exported) ShizukuRequirementReason.UNEXPORTED_ACTIVITY else ShizukuRequirementReason.NONE,
 )
 
 data class AppInspectionResult(
@@ -170,6 +193,65 @@ object RemoteIntentLauncher {
         if (pkg.isBlank() || rawCls.isBlank()) return false
         val resolvedCls = if (rawCls.startsWith(".")) "$pkg$rawCls" else rawCls
         return queryPackageActivities(context, pkg).any { it.className == resolvedCls }
+    }
+
+    fun checkNativeCompatibility(context: Context, config: TargetIntentConfig): PreflightResult {
+        if (config.kind == TargetKind.QS_TILE) {
+            return PreflightResult(
+                requiresShizuku = true,
+                reason = ShizukuRequirementReason.QUICK_SETTINGS_TILE,
+            )
+        }
+        if (config.extraArgs.isNotBlank()) {
+            return PreflightResult(
+                requiresShizuku = true,
+                reason = ShizukuRequirementReason.SHELL_EXTRA_FLAGS,
+            )
+        }
+
+        val pkg = config.packageName.trim()
+        val rawCls = config.activityClass.trim()
+        if (pkg.isNotBlank() && rawCls.isNotBlank()) {
+            val resolvedCls = if (rawCls.startsWith(".")) "$pkg$rawCls" else rawCls
+            val declared = queryPackageActivities(context, pkg).firstOrNull { it.className == resolvedCls }
+                ?: return PreflightResult(requiresShizuku = false)
+            return PreflightResult(
+                requiresShizuku = declared.requiresShizuku,
+                reason = declared.shizukuReason,
+                requiredPermission = declared.requiredPermission,
+            )
+        }
+
+        val intent = buildIntent(context, config) ?: return PreflightResult(requiresShizuku = false)
+        val matches = queryActivitiesCompat(context.packageManager, intent)
+        if (matches.isEmpty()) {
+            return PreflightResult(requiresShizuku = false)
+        }
+        val canLaunchAnyNatively = matches.any { resolveInfo ->
+            val act = resolveInfo.activityInfo ?: return@any false
+            act.exported && !isPermissionBlocked(context, act.permission)
+        }
+        if (canLaunchAnyNatively) {
+            return PreflightResult(requiresShizuku = false)
+        }
+        val firstAct = matches.firstNotNullOfOrNull { it.activityInfo }
+        val perm = firstAct?.permission?.takeIf { it.isNotBlank() }
+        val reason = if (firstAct != null && !firstAct.exported) {
+            ShizukuRequirementReason.UNEXPORTED_ACTIVITY
+        } else {
+            ShizukuRequirementReason.PERMISSION_REQUIRED
+        }
+        return PreflightResult(
+            requiresShizuku = true,
+            reason = reason,
+            requiredPermission = perm,
+        )
+    }
+
+    private fun isPermissionBlocked(context: Context, permission: String?): Boolean {
+        val perm = permission?.trim().orEmpty()
+        if (perm.isEmpty()) return false
+        return ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED
     }
 
     fun launchTarget(context: Context, config: TargetIntentConfig): LaunchOutcome {
@@ -351,8 +433,13 @@ object RemoteIntentLauncher {
             }
         }
 
+        // 4. All declared activities (exported & internal)
+        val activities = queryPackageActivities(context, pkg)
+        val activitiesByName = activities.associateBy { it.className }
+
         // 1. Main launcher entry
         pm.getLaunchIntentForPackage(pkg)?.component?.let { comp ->
+            val declared = activitiesByName[comp.className]
             addEntry(
                 AppIntentEntry(
                     title = "Main Launcher",
@@ -363,7 +450,10 @@ object RemoteIntentLauncher {
                     componentClass = comp.className,
                     action = Intent.ACTION_MAIN,
                     category = Intent.CATEGORY_LAUNCHER,
-                    exported = true,
+                    exported = declared?.exported ?: true,
+                    requiredPermission = declared?.requiredPermission,
+                    requiresShizuku = declared?.requiresShizuku ?: false,
+                    shizukuReason = declared?.shizukuReason ?: ShizukuRequirementReason.NONE,
                 ),
             )
         }
@@ -382,7 +472,9 @@ object RemoteIntentLauncher {
                     kind = TargetKind.QS_TILE,
                     packageName = svc.packageName,
                     componentClass = svc.name,
-                    exported = true,
+                    exported = svc.exported,
+                    requiresShizuku = true,
+                    shizukuReason = ShizukuRequirementReason.QUICK_SETTINGS_TILE,
                 ),
             )
         }
@@ -409,6 +501,14 @@ object RemoteIntentLauncher {
                 val dataUri = probe.dataString.orEmpty()
                 val category = probe.categories?.firstOrNull().orEmpty()
                 val mime = probe.type.orEmpty()
+                val perm = act.permission?.takeIf { it.isNotBlank() }
+                val permBlocked = isPermissionBlocked(context, perm)
+                val reqShizuku = !act.exported || permBlocked
+                val reason = when {
+                    !act.exported -> ShizukuRequirementReason.UNEXPORTED_ACTIVITY
+                    permBlocked -> ShizukuRequirementReason.PERMISSION_REQUIRED
+                    else -> ShizukuRequirementReason.NONE
+                }
                 addEntry(
                     AppIntentEntry(
                         title = actLabel,
@@ -422,13 +522,13 @@ object RemoteIntentLauncher {
                         category = category,
                         mimeType = mime,
                         exported = act.exported,
+                        requiredPermission = perm,
+                        requiresShizuku = reqShizuku,
+                        shizukuReason = reason,
                     ),
                 )
             }
         }
-
-        // 4. All declared activities (exported & internal)
-        val activities = queryPackageActivities(context, pkg)
 
         return AppInspectionResult(
             appLabel = appLabel,
@@ -465,14 +565,25 @@ object RemoteIntentLauncher {
                 val label = runCatching { activityInfo.loadLabel(pm)?.toString() }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
                     ?: shortName
+                val perm = activityInfo.permission?.takeIf { it.isNotBlank() }
+                val permBlocked = isPermissionBlocked(context, perm)
+                val reqShizuku = !activityInfo.exported || permBlocked
+                val reason = when {
+                    !activityInfo.exported -> ShizukuRequirementReason.UNEXPORTED_ACTIVITY
+                    permBlocked -> ShizukuRequirementReason.PERMISSION_REQUIRED
+                    else -> ShizukuRequirementReason.NONE
+                }
                 PackageActivityInfo(
                     className = className,
                     shortName = shortName,
                     label = label,
                     exported = activityInfo.exported,
+                    requiredPermission = perm,
+                    requiresShizuku = reqShizuku,
+                    shizukuReason = reason,
                 )
             }
-            .sortedWith(compareByDescending<PackageActivityInfo> { it.exported }.thenBy { it.shortName })
+            .sortedWith(compareBy<PackageActivityInfo> { it.requiresShizuku }.thenBy { it.shortName })
     }
 
     private fun queryActivitiesCompat(

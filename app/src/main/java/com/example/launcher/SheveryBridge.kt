@@ -72,6 +72,9 @@ object SheveryBridge {
         }
     }
 
+    fun isConnected(status: BridgeStatus): Boolean =
+        status == BridgeStatus.READY || status == BridgeStatus.PERMISSION_REQUIRED
+
     fun openSheveryOrShizuku(context: Context): Boolean {
         val targetPkg = when {
             isSheveryInstalled(context) -> SHEVERY_PACKAGE

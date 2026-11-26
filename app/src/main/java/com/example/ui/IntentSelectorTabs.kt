@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Tune
@@ -40,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -49,18 +54,81 @@ import com.example.R
 import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreset
 import com.example.launcher.ParsedAdbResult
+import com.example.launcher.PreflightResult
 import com.example.launcher.QsTileInfo
 import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
+import com.example.ui.theme.IndigoContainer
+import com.example.ui.theme.IndigoOnContainer
+
+@Composable
+fun ShizukuBadgePill(
+    isLocked: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(
+                if (isLocked) {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                } else {
+                    IndigoContainer
+                },
+            )
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.AdminPanelSettings,
+            contentDescription = stringResource(R.string.cd_locked_shizuku),
+            tint = if (isLocked) {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            } else {
+                IndigoOnContainer
+            },
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            text = stringResource(R.string.badge_shizuku_shevery),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isLocked) {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            } else {
+                IndigoOnContainer
+            },
+            maxLines = 1,
+        )
+    }
+}
 
 @Composable
 fun PresetsTabContent(
     selectedConfig: TargetIntentConfig,
+    presetPreflight: Map<String, PreflightResult>,
+    isShizukuConnected: Boolean,
     onSelectPreset: (IntentPreset) -> Unit,
+    onLockedPresetClick: (IntentPreset, PreflightResult) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val anyLocked = !isShizukuConnected && TargetIntentConfig.Presets.any {
+            presetPreflight[it.id]?.requiresShizuku == true
+        }
+        if (anyLocked) {
+            Text(
+                text = stringResource(R.string.hint_shizuku_locked_items),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+
         TargetIntentConfig.Presets.forEach { preset ->
-            val isSelected = selectedConfig.kind == preset.config.kind &&
+            val preflight = presetPreflight[preset.id] ?: PreflightResult(requiresShizuku = false)
+            val isLocked = preflight.requiresShizuku && !isShizukuConnected
+            val isSelected = !isLocked &&
+                selectedConfig.kind == preset.config.kind &&
                 selectedConfig.packageName == preset.config.packageName &&
                 selectedConfig.activityClass == preset.config.activityClass &&
                 selectedConfig.action == preset.config.action
@@ -69,20 +137,26 @@ fun PresetsTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .clickable { onSelectPreset(preset) }
+                    .clickable {
+                        if (isLocked) {
+                            onLockedPresetClick(preset, preflight)
+                        } else {
+                            onSelectPreset(preset)
+                        }
+                    }
                     .testTag("preset_${preset.id}"),
                 shape = RoundedCornerShape(16.dp),
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                } else {
-                    MaterialTheme.colorScheme.surface
+                color = when {
+                    isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    isLocked -> MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                    else -> MaterialTheme.colorScheme.surface
                 },
                 border = BorderStroke(
                     width = if (isSelected) 1.5.dp else 1.dp,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
+                    color = when {
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        isLocked -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                        else -> MaterialTheme.colorScheme.outlineVariant
                     },
                 ),
             ) {
@@ -99,7 +173,9 @@ fun PresetsTabContent(
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier
+                            .size(44.dp)
+                            .alpha(if (isLocked) 0.5f else 1f),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -111,13 +187,17 @@ fun PresetsTabContent(
                         }
                     }
 
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .alpha(if (isLocked) 0.52f else 1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text(
                             text = preset.title,
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = preset.subtitle,
                             style = MaterialTheme.typography.bodyMedium,
@@ -127,7 +207,9 @@ fun PresetsTabContent(
                         )
                     }
 
-                    if (isSelected) {
+                    if (preflight.requiresShizuku) {
+                        ShizukuBadgePill(isLocked = isLocked)
+                    } else if (isSelected) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
                             contentDescription = null,
@@ -147,10 +229,21 @@ fun QsTilesTabContent(
     isLoading: Boolean,
     searchQuery: String,
     selectedConfig: TargetIntentConfig,
+    isShizukuConnected: Boolean,
     onSearchQueryChange: (String) -> Unit,
     onSelectTile: (QsTileInfo) -> Unit,
+    onLockedTileClick: (QsTileInfo) -> Unit,
 ) {
+    val isLocked = !isShizukuConnected
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (isLocked) {
+            Text(
+                text = stringResource(R.string.hint_shizuku_locked_items),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
@@ -238,27 +331,34 @@ fun QsTilesTabContent(
             else -> {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     filtered.forEach { tile ->
-                        val isSelected = selectedConfig.kind == TargetKind.QS_TILE &&
+                        val isSelected = !isLocked &&
+                            selectedConfig.kind == TargetKind.QS_TILE &&
                             selectedConfig.packageName == tile.packageName &&
                             selectedConfig.activityClass == tile.serviceClass
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onSelectTile(tile) }
+                                .clickable {
+                                    if (isLocked) {
+                                        onLockedTileClick(tile)
+                                    } else {
+                                        onSelectTile(tile)
+                                    }
+                                }
                                 .testTag("qs_tile_${tile.serviceClass}"),
                             shape = RoundedCornerShape(16.dp),
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
+                            color = when {
+                                isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                isLocked -> MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                                else -> MaterialTheme.colorScheme.surface
                             },
                             border = BorderStroke(
                                 width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
+                                color = when {
+                                    isSelected -> MaterialTheme.colorScheme.primary
+                                    isLocked -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                    else -> MaterialTheme.colorScheme.outlineVariant
                                 },
                             ),
                         ) {
@@ -267,31 +367,37 @@ fun QsTilesTabContent(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                if (tile.icon != null) {
-                                    Image(
-                                        bitmap = tile.icon,
-                                        contentDescription = tile.label,
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(10.dp)),
-                                    )
-                                } else {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier.size(38.dp),
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Tune,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                            )
+                                Box(modifier = Modifier.alpha(if (isLocked) 0.5f else 1f)) {
+                                    if (tile.icon != null) {
+                                        Image(
+                                            bitmap = tile.icon,
+                                            contentDescription = tile.label,
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(RoundedCornerShape(10.dp)),
+                                        )
+                                    } else {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.size(38.dp),
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Tune,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
                                         }
                                     }
                                 }
 
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .alpha(if (isLocked) 0.52f else 1f),
+                                ) {
                                     Text(
                                         text = tile.label,
                                         style = MaterialTheme.typography.titleMedium,
@@ -308,14 +414,7 @@ fun QsTilesTabContent(
                                     )
                                 }
 
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Filled.CheckCircle,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
+                                ShizukuBadgePill(isLocked = isLocked)
                             }
                         }
                     }

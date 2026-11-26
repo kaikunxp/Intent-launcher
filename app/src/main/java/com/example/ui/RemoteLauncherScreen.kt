@@ -72,9 +72,12 @@ import com.example.launcher.AppIntentEntry
 import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreset
 import com.example.launcher.PackageActivityInfo
+import com.example.launcher.PreflightResult
 import com.example.launcher.QsTileInfo
 import com.example.launcher.RemoteIntentLauncher.LaunchOutcome
+import com.example.launcher.SheveryBridge
 import com.example.launcher.SheveryBridge.BridgeStatus
+import com.example.launcher.ShizukuRequirementReason
 import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
 import com.example.ui.theme.EmeraldContainer
@@ -115,6 +118,7 @@ fun RemoteLauncherScreen(
     onOpenShevery: () -> Unit,
     onInstallShizuku: () -> Unit,
     onGetShevery: () -> Unit,
+    onLockedTargetClick: (String, String, ShizukuRequirementReason, String?) -> Unit,
     onDismissShizukuPrompt: () -> Unit,
     onOpenGoogleTv: () -> Unit,
     onOpenPlayStore: (String) -> Unit,
@@ -122,6 +126,7 @@ fun RemoteLauncherScreen(
 ) {
     val glowPrimary = MaterialTheme.colorScheme.primary
     val glowSecondary = MaterialTheme.colorScheme.secondary
+    val isShizukuConnected = SheveryBridge.isConnected(uiState.sheveryStatus)
 
     Scaffold(
         modifier = Modifier
@@ -258,15 +263,34 @@ fun RemoteLauncherScreen(
                             isLoading = uiState.isLoadingTiles,
                             searchQuery = uiState.tileSearchQuery,
                             selectedConfig = uiState.draftConfig,
+                            isShizukuConnected = isShizukuConnected,
                             onSearchQueryChange = onTileSearchQueryChange,
                             onSelectTile = onSelectQsTile,
+                            onLockedTileClick = { tile ->
+                                onLockedTargetClick(
+                                    tile.label,
+                                    tile.packageName,
+                                    ShizukuRequirementReason.QUICK_SETTINGS_TILE,
+                                    null,
+                                )
+                            },
                         )
                     }
 
                     SelectorTab.PRESETS -> {
                         PresetsTabContent(
                             selectedConfig = uiState.draftConfig,
+                            presetPreflight = uiState.presetPreflight,
+                            isShizukuConnected = isShizukuConnected,
                             onSelectPreset = onSelectPreset,
+                            onLockedPresetClick = { preset, preflight ->
+                                onLockedTargetClick(
+                                    preset.title,
+                                    preset.config.packageName,
+                                    preflight.reason,
+                                    preflight.requiredPermission,
+                                )
+                            },
                         )
                     }
 
@@ -308,16 +332,34 @@ fun RemoteLauncherScreen(
         AppIntentsBottomSheet(
             inspection = inspection,
             defaultExportedOnly = !uiState.draftConfig.preferPrivilegedLaunch,
+            isShizukuConnected = isShizukuConnected,
             onSelectIntentEntry = onSelectIntentEntry,
             onSelectActivity = onSelectActivity,
+            onLockedIntentClick = { entry ->
+                onLockedTargetClick(
+                    entry.title,
+                    entry.packageName,
+                    entry.shizukuReason,
+                    entry.requiredPermission,
+                )
+            },
+            onLockedActivityClick = { activity ->
+                onLockedTargetClick(
+                    activity.shortName,
+                    inspection.packageName,
+                    activity.shizukuReason,
+                    activity.requiredPermission,
+                )
+            },
             onDismiss = onDismissActivitiesSheet,
         )
     }
 
-    val shizukuPrompt = uiState.shizukuPromptOutcome
+    val shizukuPrompt = uiState.shizukuHintPrompt
     if (shizukuPrompt != null) {
         ShizukuRequiredDialog(
-            outcome = shizukuPrompt,
+            prompt = shizukuPrompt,
+            diagnostic = uiState.sheveryDiagnostic,
             onInstallShizuku = {
                 onDismissShizukuPrompt()
                 onInstallShizuku()
@@ -326,6 +368,10 @@ fun RemoteLauncherScreen(
                 onDismissShizukuPrompt()
                 onGetShevery()
             },
+            onOpenShevery = {
+                onDismissShizukuPrompt()
+                onOpenShevery()
+            },
             onDismiss = onDismissShizukuPrompt,
         )
     }
@@ -333,16 +379,57 @@ fun RemoteLauncherScreen(
 
 @Composable
 private fun ShizukuRequiredDialog(
-    outcome: LaunchOutcome.ShizukuInstallRequired,
+    prompt: ShizukuHintPrompt,
+    diagnostic: String,
     onInstallShizuku: () -> Unit,
     onGetShevery: () -> Unit,
+    onOpenShevery: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val messageRes = when {
-        outcome.isQsTile -> R.string.status_shizuku_required_message_tile
-        outcome.hasShellExtras -> R.string.status_shizuku_required_message_extras
-        else -> R.string.status_shizuku_required_message_activity
+    val isInstalledStopped = prompt.bridgeStatus != BridgeStatus.NOT_INSTALLED
+    val targetName = prompt.targetLabel.ifBlank {
+        prompt.packageName.ifBlank { "This intent" }
     }
+    val reasonClause = when (prompt.reason) {
+        ShizukuRequirementReason.QUICK_SETTINGS_TILE -> stringResource(R.string.reason_qs_tile)
+        ShizukuRequirementReason.SHELL_EXTRA_FLAGS -> stringResource(R.string.reason_shell_extras)
+        ShizukuRequirementReason.PERMISSION_REQUIRED -> stringResource(R.string.reason_permission_required)
+        ShizukuRequirementReason.UNEXPORTED_ACTIVITY,
+        ShizukuRequirementReason.NONE,
+        -> stringResource(R.string.reason_unexported_activity)
+    }
+
+    val titleText = if (isInstalledStopped) {
+        stringResource(R.string.status_shizuku_connect_title)
+    } else {
+        stringResource(R.string.status_shizuku_required_title)
+    }
+
+    val bodyText = when (prompt.bridgeStatus) {
+        BridgeStatus.STUB_MISSING -> stringResource(
+            R.string.status_shizuku_connect_message_stub,
+            targetName,
+        )
+        BridgeStatus.SERVICE_NOT_RUNNING -> stringResource(
+            R.string.status_shizuku_connect_message_stopped,
+            targetName,
+            reasonClause,
+        )
+        else -> when (prompt.reason) {
+            ShizukuRequirementReason.QUICK_SETTINGS_TILE ->
+                stringResource(R.string.status_shizuku_required_message_tile)
+            ShizukuRequirementReason.SHELL_EXTRA_FLAGS ->
+                stringResource(R.string.status_shizuku_required_message_extras)
+            ShizukuRequirementReason.PERMISSION_REQUIRED -> stringResource(
+                R.string.status_shizuku_required_message_permission,
+                prompt.requiredPermission.orEmpty(),
+            )
+            ShizukuRequirementReason.UNEXPORTED_ACTIVITY,
+            ShizukuRequirementReason.NONE,
+            -> stringResource(R.string.status_shizuku_required_message_activity)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -354,43 +441,87 @@ private fun ShizukuRequiredDialog(
         },
         title = {
             Text(
-                text = stringResource(R.string.status_shizuku_required_title),
+                text = titleText,
                 style = MaterialTheme.typography.titleLarge,
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = stringResource(messageRes),
+                    text = bodyText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(
-                    onClick = onGetShevery,
-                    modifier = Modifier.testTag("dialog_get_shevery_button"),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.action_get_shevery))
+                if (isInstalledStopped && diagnostic.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = diagnostic,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                if (isInstalledStopped) {
+                    TextButton(
+                        onClick = onInstallShizuku,
+                        modifier = Modifier.testTag("dialog_install_shizuku_secondary_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Shop,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.action_install_shizuku))
+                    }
+                } else {
+                    TextButton(
+                        onClick = onGetShevery,
+                        modifier = Modifier.testTag("dialog_get_shevery_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.action_get_shevery))
+                    }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onInstallShizuku,
-                modifier = Modifier.testTag("dialog_install_shizuku_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Shop,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.action_install_shizuku))
+            if (isInstalledStopped) {
+                Button(
+                    onClick = onOpenShevery,
+                    modifier = Modifier.testTag("dialog_open_shevery_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.AdminPanelSettings,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.action_open_shevery))
+                }
+            } else {
+                Button(
+                    onClick = onInstallShizuku,
+                    modifier = Modifier.testTag("dialog_install_shizuku_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shop,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.action_install_shizuku))
+                }
             }
         },
         dismissButton = {

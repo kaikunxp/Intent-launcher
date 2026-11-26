@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onLockedTargetClick = viewModel::showShizukuHintForLockedTarget,
                     onDismissShizukuPrompt = viewModel::dismissShizukuPrompt,
                     onOpenGoogleTv = {
                         if (RemoteIntentLauncher.launchGoogleTvApp(this)) {

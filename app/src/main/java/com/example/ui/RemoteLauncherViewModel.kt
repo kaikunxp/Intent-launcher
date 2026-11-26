@@ -10,10 +10,12 @@ import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreferencesRepository
 import com.example.launcher.PackageActivityInfo
 import com.example.launcher.ParsedAdbResult
+import com.example.launcher.PreflightResult
 import com.example.launcher.QsTileInfo
 import com.example.launcher.RemoteIntentLauncher
 import com.example.launcher.RemoteIntentLauncher.LaunchOutcome
 import com.example.launcher.SheveryBridge
+import com.example.launcher.ShizukuRequirementReason
 import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,14 @@ enum class SelectorTab {
     CUSTOM,
 }
 
+data class ShizukuHintPrompt(
+    val targetLabel: String = "",
+    val packageName: String = "",
+    val reason: ShizukuRequirementReason = ShizukuRequirementReason.UNEXPORTED_ACTIVITY,
+    val requiredPermission: String? = null,
+    val bridgeStatus: SheveryBridge.BridgeStatus = SheveryBridge.BridgeStatus.NOT_INSTALLED,
+)
+
 data class RemoteLauncherUiState(
     val isInitializing: Boolean = true,
     val launchOutcome: LaunchOutcome = LaunchOutcome.Idle,
@@ -49,11 +59,12 @@ data class RemoteLauncherUiState(
     val qsTiles: List<QsTileInfo> = emptyList(),
     val isLoadingTiles: Boolean = false,
     val tileSearchQuery: String = "",
+    val presetPreflight: Map<String, PreflightResult> = emptyMap(),
     val pasteCommandText: String = "",
     val parsedAdbResult: ParsedAdbResult? = null,
     val inspectedAppResult: AppInspectionResult? = null,
     val isInspectingApp: Boolean = false,
-    val shizukuPromptOutcome: LaunchOutcome.ShizukuInstallRequired? = null,
+    val shizukuHintPrompt: ShizukuHintPrompt? = null,
 )
 
 class RemoteLauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -124,7 +135,8 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
+                        shizukuHintPrompt = (outcome as? LaunchOutcome.ShizukuInstallRequired)
+                            ?.toHintPrompt(app, config),
                     )
                 }
             } else {
@@ -144,7 +156,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = null,
+                        shizukuHintPrompt = null,
                     )
                 }
             }
@@ -154,7 +166,30 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun dismissShizukuPrompt() {
-        _uiState.update { it.copy(shizukuPromptOutcome = null) }
+        _uiState.update { it.copy(shizukuHintPrompt = null) }
+    }
+
+    fun showShizukuHintForLockedTarget(
+        targetLabel: String,
+        packageName: String,
+        reason: ShizukuRequirementReason,
+        requiredPermission: String? = null,
+    ) {
+        val app = getApplication<Application>()
+        val status = SheveryBridge.getStatus(app)
+        _uiState.update {
+            it.copy(
+                sheveryStatus = status,
+                sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                shizukuHintPrompt = ShizukuHintPrompt(
+                    targetLabel = targetLabel,
+                    packageName = packageName,
+                    reason = reason,
+                    requiredPermission = requiredPermission,
+                    bridgeStatus = status,
+                ),
+            )
+        }
     }
 
     fun requestSheveryPermissionNow(onGranted: () -> Unit = {}) {
@@ -255,7 +290,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             it.copy(
                 draftConfig = config.copy(isConfigured = true),
                 launchOutcome = LaunchOutcome.Idle,
-                shizukuPromptOutcome = null,
+                shizukuHintPrompt = null,
                 isTargetPackageInstalled = RemoteIntentLauncher.isPackageInstalled(
                     app,
                     config.packageName,
@@ -447,7 +482,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = null,
+                        shizukuHintPrompt = null,
                     )
                 }
                 onLaunchSucceeded()
@@ -463,7 +498,8 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
+                        shizukuHintPrompt = (outcome as? LaunchOutcome.ShizukuInstallRequired)
+                            ?.toHintPrompt(app, configured),
                     )
                 }
             }
@@ -483,7 +519,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = null,
+                        shizukuHintPrompt = null,
                     )
                 }
                 onLaunchSucceeded()
@@ -494,7 +530,8 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
-                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
+                        shizukuHintPrompt = (outcome as? LaunchOutcome.ShizukuInstallRequired)
+                            ?.toHintPrompt(app, draft),
                     )
                 }
             }
@@ -515,6 +552,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                 sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
             )
         }
+        loadPresetPreflight()
         if (_uiState.value.selectedTab == SelectorTab.APPS && _uiState.value.installedApps.isEmpty()) {
             loadInstalledAppsIfNeeded()
         }
@@ -572,9 +610,42 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         return SheveryBridge.launchViaPrivilegedService(app, config)
     }
 
+    private fun LaunchOutcome.ShizukuInstallRequired.toHintPrompt(
+        app: Application,
+        config: TargetIntentConfig,
+    ): ShizukuHintPrompt {
+        val preflight = RemoteIntentLauncher.checkNativeCompatibility(app, config)
+        val reason = when {
+            isQsTile -> ShizukuRequirementReason.QUICK_SETTINGS_TILE
+            hasShellExtras -> ShizukuRequirementReason.SHELL_EXTRA_FLAGS
+            preflight.requiresShizuku -> preflight.reason
+            else -> ShizukuRequirementReason.UNEXPORTED_ACTIVITY
+        }
+        return ShizukuHintPrompt(
+            targetLabel = config.label.ifBlank { config.packageName },
+            packageName = packageName,
+            reason = reason,
+            requiredPermission = preflight.requiredPermission,
+            bridgeStatus = SheveryBridge.getStatus(app),
+        )
+    }
+
     private fun loadDiscoveryData() {
+        loadPresetPreflight()
         loadInstalledAppsIfNeeded()
         loadQsTilesIfNeeded()
+    }
+
+    private fun loadPresetPreflight() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val preflightMap = withContext(Dispatchers.IO) {
+                TargetIntentConfig.Presets.associate { preset ->
+                    preset.id to RemoteIntentLauncher.checkNativeCompatibility(app, preset.config)
+                }
+            }
+            _uiState.update { it.copy(presetPreflight = preflightMap) }
+        }
     }
 
     private fun loadQsTilesIfNeeded() {

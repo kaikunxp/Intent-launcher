@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -54,8 +56,11 @@ import com.example.ui.theme.EmeraldOk
 fun AppIntentsBottomSheet(
     inspection: AppInspectionResult,
     defaultExportedOnly: Boolean,
+    isShizukuConnected: Boolean,
     onSelectIntentEntry: (AppIntentEntry, Boolean) -> Unit,
     onSelectActivity: (PackageActivityInfo, Boolean) -> Unit,
+    onLockedIntentClick: (AppIntentEntry) -> Unit,
+    onLockedActivityClick: (PackageActivityInfo) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -67,7 +72,7 @@ fun AppIntentsBottomSheet(
 
         val query = searchQuery.trim().lowercase()
         val visibleIntents = inspection.intents.filter { entry ->
-            val matchesExported = !exportedOnly || entry.exported
+            val matchesExported = !exportedOnly || !entry.requiresShizuku
             val matchesQuery = query.isEmpty() ||
                 entry.title.lowercase().contains(query) ||
                 entry.subtitle.lowercase().contains(query) ||
@@ -77,7 +82,7 @@ fun AppIntentsBottomSheet(
         }
 
         val visibleActivities = inspection.activities.filter { act ->
-            val matchesExported = !exportedOnly || act.exported
+            val matchesExported = !exportedOnly || !act.requiresShizuku
             val matchesQuery = query.isEmpty() ||
                 act.shortName.lowercase().contains(query) ||
                 act.className.lowercase().contains(query) ||
@@ -139,6 +144,18 @@ fun AppIntentsBottomSheet(
                     label = { Text(stringResource(R.string.filter_exported_only)) },
                     modifier = Modifier.testTag("filter_exported_only_chip"),
                 )
+                val hasLockedVisible = !isShizukuConnected && (
+                    visibleIntents.any { it.requiresShizuku } ||
+                        visibleActivities.any { it.requiresShizuku }
+                    )
+                if (hasLockedVisible) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.hint_shizuku_locked_items),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
@@ -178,8 +195,10 @@ fun AppIntentsBottomSheet(
                         ) { entry ->
                             AppIntentEntryRow(
                                 entry = entry,
+                                isShizukuConnected = isShizukuConnected,
                                 onSelect = { onSelectIntentEntry(entry, false) },
                                 onRunNow = { onSelectIntentEntry(entry, true) },
+                                onLockedClick = { onLockedIntentClick(entry) },
                             )
                         }
                     }
@@ -199,8 +218,10 @@ fun AppIntentsBottomSheet(
                         ) { activity ->
                             DeclaredActivityRow(
                                 activity = activity,
+                                isShizukuConnected = isShizukuConnected,
                                 onSelect = { onSelectActivity(activity, false) },
                                 onRunNow = { onSelectActivity(activity, true) },
+                                onLockedClick = { onLockedActivityClick(activity) },
                             )
                         }
                     }
@@ -213,24 +234,44 @@ fun AppIntentsBottomSheet(
 @Composable
 private fun AppIntentEntryRow(
     entry: AppIntentEntry,
+    isShizukuConnected: Boolean,
     onSelect: () -> Unit,
     onRunNow: () -> Unit,
+    onLockedClick: () -> Unit,
 ) {
+    val isLocked = entry.requiresShizuku && !isShizukuConnected
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onSelect),
+            .clickable {
+                if (isLocked) onLockedClick() else onSelect()
+            },
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        color = if (isLocked) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        } else {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isLocked) {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            } else {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+            },
+        ),
     ) {
         Row(
             modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .alpha(if (isLocked) 0.52f else 1f),
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -266,11 +307,21 @@ private fun AppIntentEntryRow(
                 )
             }
 
-            IconButton(onClick = onRunNow) {
+            if (entry.requiresShizuku) {
+                ShizukuBadgePill(isLocked = isLocked)
+            }
+
+            IconButton(onClick = { if (isLocked) onLockedClick() else onRunNow() }) {
                 Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(R.string.cd_launch_icon),
-                    tint = MaterialTheme.colorScheme.primary,
+                    imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(
+                        if (isLocked) R.string.cd_locked_shizuku else R.string.cd_launch_icon,
+                    ),
+                    tint = if (isLocked) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
                 )
             }
         }
@@ -280,24 +331,44 @@ private fun AppIntentEntryRow(
 @Composable
 private fun DeclaredActivityRow(
     activity: PackageActivityInfo,
+    isShizukuConnected: Boolean,
     onSelect: () -> Unit,
     onRunNow: () -> Unit,
+    onLockedClick: () -> Unit,
 ) {
+    val isLocked = activity.requiresShizuku && !isShizukuConnected
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onSelect),
+            .clickable {
+                if (isLocked) onLockedClick() else onSelect()
+            },
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = if (isLocked) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isLocked) {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
+        ),
     ) {
         Row(
             modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .alpha(if (isLocked) 0.52f else 1f),
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -310,33 +381,19 @@ private fun DeclaredActivityRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(
-                                if (activity.exported) {
-                                    EmeraldContainer
-                                } else {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                },
+                    if (!activity.requiresShizuku) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(EmeraldContainer)
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.label_exported),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldOk,
                             )
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = stringResource(
-                                if (activity.exported) {
-                                    R.string.label_exported
-                                } else {
-                                    R.string.label_internal
-                                },
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (activity.exported) {
-                                EmeraldOk
-                            } else {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            },
-                        )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
@@ -349,11 +406,21 @@ private fun DeclaredActivityRow(
                 )
             }
 
-            IconButton(onClick = onRunNow) {
+            if (activity.requiresShizuku) {
+                ShizukuBadgePill(isLocked = isLocked)
+            }
+
+            IconButton(onClick = { if (isLocked) onLockedClick() else onRunNow() }) {
                 Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(R.string.cd_launch_icon),
-                    tint = MaterialTheme.colorScheme.primary,
+                    imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(
+                        if (isLocked) R.string.cd_locked_shizuku else R.string.cd_launch_icon,
+                    ),
+                    tint = if (isLocked) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
                 )
             }
         }
