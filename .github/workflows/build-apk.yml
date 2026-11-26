@@ -23,8 +23,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Decode signing keystore
-        run: base64 -d debug.keystore.base64 > debug.keystore
+      - name: Prepare signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Accept Android SDK licenses
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -35,8 +58,10 @@ jobs:
         run: gradle :app:assembleDebug
 
       - name: Prepare named APK
+        id: meta
         run: |
           VERSION_NAME=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           mkdir -p build-release
           cp app/build/outputs/apk/debug/app-debug.apk "build-release/ButtonIntentLauncher-v${VERSION_NAME}.apk"
 
@@ -47,9 +72,8 @@ jobs:
           path: build-release/*.apk
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v5.0-{0}', github.run_number) }}
-          name: Button Intent Launcher ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v5.0' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}-{1}', steps.meta.outputs.version, github.run_number) }}
+          name: Button Intent Launcher ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.meta.outputs.version) }}
           files: build-release/*.apk

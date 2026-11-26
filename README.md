@@ -6,7 +6,7 @@
 
 ## Download APK
 
-- **Latest APK (v5.0):** [**Download `ButtonIntentLauncher-v5.0.apk`**](releases/ButtonIntentLauncher-v5.0.apk)
+- **Latest APK (v7.0):** [**Download `ButtonIntentLauncher-v7.0.apk`**](releases/ButtonIntentLauncher-v7.0.apk)
 - Or download automated builds from the **Releases** / **Actions** tabs once pushed to GitHub.
 
 > **Install note:** Enable *Install unknown apps* if installing directly on Android. The APK is signed consistently so future builds update in place.
@@ -54,8 +54,12 @@ Standard apps and exported activities work out of the box without any extra tool
 Requirements: JDK 17+, Android SDK (API 36), Gradle 9.3.1.
 
 ```bash
-# Restore the debug signing keystore
-base64 -d debug.keystore.base64 > debug.keystore
+# Restore or generate a debug signing keystore if missing
+if [ -f debug.keystore.base64 ]; then
+  base64 -d debug.keystore.base64 > debug.keystore
+elif [ ! -f debug.keystore ]; then
+  keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+fi
 
 # Build the debug APK
 gradle :app:assembleDebug
