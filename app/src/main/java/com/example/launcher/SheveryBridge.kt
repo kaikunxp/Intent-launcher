@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.IBinder
 import com.example.BuildConfig
 import com.example.IRemoteShellService
@@ -88,6 +89,24 @@ object SheveryBridge {
         }
     }
 
+    fun openShizukuInstall(context: Context): Boolean =
+        RemoteIntentLauncher.openPackageInPlayStore(context, SHIZUKU_PACKAGE)
+
+    fun openSheveryReleases(context: Context): Boolean {
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://github.com/HmnDev-Tech/shevery/releases"),
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun awaitBinderAvailable(timeoutMs: Long = 2_000L): Boolean {
         if (isBinderAlive()) return true
         val received = withTimeoutOrNull(timeoutMs) {
@@ -140,6 +159,13 @@ object SheveryBridge {
         val activity = config.activityClass.trim()
         val action = config.action.trim()
         val dataUri = config.dataUri.trim()
+        val category = config.category.trim()
+        val mimeType = config.mimeType.trim()
+        val extraTokens = if (config.extraArgs.isNotBlank()) {
+            AdbCommandParser.tokenizeShellArgs(config.extraArgs.trim())
+        } else {
+            emptyList()
+        }
 
         if (config.kind == TargetKind.QS_TILE) {
             if (pkg.isBlank() || activity.isBlank()) return null
@@ -152,7 +178,14 @@ object SheveryBridge {
         }
 
         val args = mutableListOf("am", "start")
-        if (pkg.isNotBlank() && activity.isBlank() && action.isBlank() && dataUri.isBlank()) {
+        if (pkg.isNotBlank() &&
+            activity.isBlank() &&
+            action.isBlank() &&
+            dataUri.isBlank() &&
+            category.isBlank() &&
+            mimeType.isBlank() &&
+            extraTokens.isEmpty()
+        ) {
             val resolvedComponent = RemoteIntentLauncher.buildIntent(context, config)?.component
             if (resolvedComponent != null) {
                 args.add("-n")
@@ -176,6 +209,14 @@ object SheveryBridge {
             args.add("-d")
             args.add(dataUri)
         }
+        if (mimeType.isNotBlank()) {
+            args.add("-t")
+            args.add(mimeType)
+        }
+        if (category.isNotBlank()) {
+            args.add("-c")
+            args.add(category)
+        }
         if (pkg.isNotBlank() && activity.isNotBlank()) {
             val resolvedClass = if (activity.startsWith(".")) "$pkg$activity" else activity
             args.add("-n")
@@ -184,6 +225,7 @@ object SheveryBridge {
             args.add("-p")
             args.add(pkg)
         }
+        args.addAll(extraTokens)
         return args.toTypedArray()
     }
 
@@ -194,12 +236,27 @@ object SheveryBridge {
         val args = buildPrivilegedArgs(context, config)
             ?: return RemoteIntentLauncher.LaunchOutcome.InvalidTarget
 
+        if (!isBinderAlive() && getStatus(context) == BridgeStatus.NOT_INSTALLED) {
+            return RemoteIntentLauncher.LaunchOutcome.ShizukuInstallRequired(
+                packageName = config.packageName,
+                activityClass = config.activityClass,
+                isQsTile = config.kind == TargetKind.QS_TILE,
+                hasShellExtras = config.extraArgs.isNotBlank(),
+            )
+        }
+
         val binderReady = awaitBinderAvailable()
         if (!binderReady) {
             return when (getStatus(context)) {
                 BridgeStatus.STUB_MISSING -> RemoteIntentLauncher.LaunchOutcome.SheveryStubMissing
                 BridgeStatus.SERVICE_NOT_RUNNING ->
                     RemoteIntentLauncher.LaunchOutcome.SheveryServiceNotRunning
+                BridgeStatus.NOT_INSTALLED -> RemoteIntentLauncher.LaunchOutcome.ShizukuInstallRequired(
+                    packageName = config.packageName,
+                    activityClass = config.activityClass,
+                    isQsTile = config.kind == TargetKind.QS_TILE,
+                    hasShellExtras = config.extraArgs.isNotBlank(),
+                )
                 else -> RemoteIntentLauncher.LaunchOutcome.PermissionDenied(
                     config.packageName,
                     config.activityClass,

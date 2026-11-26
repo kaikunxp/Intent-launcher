@@ -1,31 +1,41 @@
 package com.example.launcher
 
-enum class TargetKind {
-    ACTIVITY,
-    QS_TILE,
-}
-
 data class TargetIntentConfig(
-    val label: String = DEFAULT_LABEL,
-    val packageName: String = DEFAULT_PACKAGE,
-    val activityClass: String = DEFAULT_ACTIVITY,
+    val label: String = "",
+    val packageName: String = "",
+    val activityClass: String = "",
     val action: String = "",
     val dataUri: String = "",
+    val category: String = "",
+    val mimeType: String = "",
+    val extraArgs: String = "",
     val autoLaunchEnabled: Boolean = true,
     val preferPrivilegedLaunch: Boolean = true,
     val kind: TargetKind = TargetKind.ACTIVITY,
+    val isConfigured: Boolean = false,
 ) {
     val displayTarget: String
         get() = when {
             kind == TargetKind.QS_TILE && packageName.isNotBlank() && activityClass.isNotBlank() ->
-                "QS Tile • $packageName/$activityClass"
-            packageName.isNotBlank() && activityClass.isNotBlank() -> "$packageName/$activityClass"
-            packageName.isNotBlank() && action.isNotBlank() -> "$packageName ($action)"
+                "cmd statusbar click-tile $packageName/$activityClass"
+            packageName.isNotBlank() && activityClass.isNotBlank() ->
+                buildList {
+                    add("$packageName/$activityClass")
+                    if (action.isNotBlank()) add("($action)")
+                    if (dataUri.isNotBlank()) add(dataUri)
+                    if (extraArgs.isNotBlank()) add(extraArgs)
+                }.joinToString(" ")
+            packageName.isNotBlank() && action.isNotBlank() ->
+                listOfNotNull(
+                    "$packageName ($action)",
+                    dataUri.takeIf { it.isNotBlank() },
+                    extraArgs.takeIf { it.isNotBlank() },
+                ).joinToString(" ")
             packageName.isNotBlank() -> packageName
             action.isNotBlank() && dataUri.isNotBlank() -> "$action • $dataUri"
             action.isNotBlank() -> action
             dataUri.isNotBlank() -> dataUri
-            else -> "Not configured"
+            else -> "No intent selected yet"
         }
 
     val isValid: Boolean
@@ -36,58 +46,94 @@ data class TargetIntentConfig(
         }
 
     companion object {
-        const val DEFAULT_LABEL = "Google TV Remote"
-        const val DEFAULT_PACKAGE = "com.google.android.videos"
-        const val DEFAULT_ACTIVITY =
+        const val GOOGLE_TV_PACKAGE = "com.google.android.videos"
+        const val GOOGLE_TV_REMOTE_LEGACY_ACTIVITY =
             "com.google.android.apps.play.movies.common.remote.RemoteDevicesListActivity"
+        const val DEFAULT_PACKAGE = GOOGLE_TV_PACKAGE
 
         val Default = TargetIntentConfig()
 
         val Presets: List<IntentPreset> = listOf(
             IntentPreset(
-                id = "google_tv_remote",
-                title = "Google TV Remote (Legacy Activity)",
-                subtitle = "Direct jump to RemoteDevicesListActivity",
-                config = TargetIntentConfig(
-                    label = "Google TV Remote",
-                    packageName = DEFAULT_PACKAGE,
-                    activityClass = DEFAULT_ACTIVITY,
-                    autoLaunchEnabled = true,
-                ),
-            ),
-            IntentPreset(
                 id = "google_tv_app",
-                title = "Google TV App",
-                subtitle = "Opens Google TV (tap the Remote button inside)",
+                title = "Google TV",
+                subtitle = "Opens Google TV (built-in TV remote icon inside)",
                 config = TargetIntentConfig(
                     label = "Google TV",
-                    packageName = DEFAULT_PACKAGE,
-                    activityClass = "",
-                    action = "",
+                    packageName = GOOGLE_TV_PACKAGE,
                     autoLaunchEnabled = true,
+                    isConfigured = true,
                 ),
             ),
             IntentPreset(
                 id = "google_home_app",
                 title = "Google Home",
-                subtitle = "Smart home & built-in TV remote controls",
+                subtitle = "Smart home & Google TV device remote controls",
                 config = TargetIntentConfig(
                     label = "Google Home",
                     packageName = "com.google.android.apps.chromecast.app",
-                    activityClass = "",
-                    action = "",
                     autoLaunchEnabled = true,
+                    isConfigured = true,
+                ),
+            ),
+            IntentPreset(
+                id = "developer_options",
+                title = "Developer Options",
+                subtitle = "Jump directly to Android Developer Options",
+                config = TargetIntentConfig(
+                    label = "Developer Options",
+                    action = "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+                    autoLaunchEnabled = true,
+                    isConfigured = true,
+                ),
+            ),
+            IntentPreset(
+                id = "wireless_debugging",
+                title = "Wireless Debugging",
+                subtitle = "System Wireless Debugging settings (Shevery / Shizuku)",
+                config = TargetIntentConfig(
+                    label = "Wireless Debugging",
+                    packageName = "com.android.settings",
+                    activityClass = "com.android.settings.Settings\$WirelessDebuggingActivity",
+                    autoLaunchEnabled = true,
+                    preferPrivilegedLaunch = true,
+                    isConfigured = true,
                 ),
             ),
             IntentPreset(
                 id = "connected_devices",
                 title = "Connected Devices",
-                subtitle = "Android Cast, Bluetooth & paired devices",
+                subtitle = "Cast, Bluetooth & paired devices",
                 config = TargetIntentConfig(
                     label = "Connected Devices",
                     packageName = "com.android.settings",
                     activityClass = "com.android.settings.Settings\$ConnectedDeviceDashboardActivity",
                     autoLaunchEnabled = true,
+                    isConfigured = true,
+                ),
+            ),
+            IntentPreset(
+                id = "notification_history",
+                title = "Notification History",
+                subtitle = "Android Notification History log",
+                config = TargetIntentConfig(
+                    label = "Notification History",
+                    action = "android.settings.NOTIFICATION_HISTORY",
+                    autoLaunchEnabled = true,
+                    isConfigured = true,
+                ),
+            ),
+            IntentPreset(
+                id = "google_tv_remote_legacy",
+                title = "Google TV Remote (Legacy Activity)",
+                subtitle = "Legacy RemoteDevicesListActivity (older Google TV builds)",
+                config = TargetIntentConfig(
+                    label = "Google TV Remote",
+                    packageName = GOOGLE_TV_PACKAGE,
+                    activityClass = GOOGLE_TV_REMOTE_LEGACY_ACTIVITY,
+                    autoLaunchEnabled = true,
+                    preferPrivilegedLaunch = true,
+                    isConfigured = true,
                 ),
             ),
             IntentPreset(
@@ -99,10 +145,16 @@ data class TargetIntentConfig(
                     packageName = "com.android.settings",
                     activityClass = "com.android.settings.Settings",
                     autoLaunchEnabled = true,
+                    isConfigured = true,
                 ),
             ),
         )
     }
+}
+
+enum class TargetKind {
+    ACTIVITY,
+    QS_TILE,
 }
 
 data class IntentPreset(

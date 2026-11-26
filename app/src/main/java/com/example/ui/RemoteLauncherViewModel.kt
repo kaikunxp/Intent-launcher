@@ -3,11 +3,14 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.launcher.AdbCommandParser
+import com.example.launcher.AppInspectionResult
+import com.example.launcher.AppIntentEntry
 import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreferencesRepository
 import com.example.launcher.PackageActivityInfo
+import com.example.launcher.ParsedAdbResult
 import com.example.launcher.QsTileInfo
-import com.example.launcher.RemoteActivityCandidate
 import com.example.launcher.RemoteIntentLauncher
 import com.example.launcher.RemoteIntentLauncher.LaunchOutcome
 import com.example.launcher.SheveryBridge
@@ -23,9 +26,9 @@ import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
 enum class SelectorTab {
-    PRESETS,
-    QS_TILES,
     APPS,
+    QS_TILES,
+    PRESETS,
     CUSTOM,
 }
 
@@ -39,17 +42,18 @@ data class RemoteLauncherUiState(
     val sheveryStatus: SheveryBridge.BridgeStatus = SheveryBridge.BridgeStatus.NOT_INSTALLED,
     val sheveryDiagnostic: String = "",
     val isLaunchingViaShevery: Boolean = false,
-    val selectedTab: SelectorTab = SelectorTab.PRESETS,
+    val selectedTab: SelectorTab = SelectorTab.APPS,
     val installedApps: List<InstalledAppInfo> = emptyList(),
     val isLoadingApps: Boolean = false,
     val appSearchQuery: String = "",
     val qsTiles: List<QsTileInfo> = emptyList(),
     val isLoadingTiles: Boolean = false,
     val tileSearchQuery: String = "",
-    val discoveredRemoteActivities: List<RemoteActivityCandidate> = emptyList(),
-    val inspectedAppLabel: String? = null,
-    val inspectedPackageName: String? = null,
-    val inspectedActivities: List<PackageActivityInfo> = emptyList(),
+    val pasteCommandText: String = "",
+    val parsedAdbResult: ParsedAdbResult? = null,
+    val inspectedAppResult: AppInspectionResult? = null,
+    val isInspectingApp: Boolean = false,
+    val shizukuPromptOutcome: LaunchOutcome.ShizukuInstallRequired? = null,
 )
 
 class RemoteLauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,7 +102,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             val config = withContext(Dispatchers.IO) { repository.getConfig() }
             val app = getApplication<Application>()
 
-            if (!forceConfigure && config.autoLaunchEnabled && config.isValid) {
+            if (!forceConfigure && config.isConfigured && config.autoLaunchEnabled && config.isValid) {
                 val outcome = executeConfiguredLaunch(app, config)
                 if (outcome is LaunchOutcome.Launched) {
                     onAutoLaunchSucceeded()
@@ -120,6 +124,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
                     )
                 }
             } else {
@@ -139,10 +144,46 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = null,
                     )
                 }
             }
+
             loadDiscoveryData()
+        }
+    }
+
+    fun dismissShizukuPrompt() {
+        _uiState.update { it.copy(shizukuPromptOutcome = null) }
+    }
+
+    fun requestSheveryPermissionNow(onGranted: () -> Unit = {}) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val binderReady = SheveryBridge.awaitBinderAvailable(timeoutMs = 2_000L)
+            if (binderReady) {
+                val granted = SheveryBridge.requestPermissionAndAwait(timeoutMs = 30_000L)
+                _uiState.update {
+                    it.copy(
+                        sheveryStatus = SheveryBridge.getStatus(app),
+                        sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                    )
+                }
+                if (granted) {
+                    onGranted()
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        launchOutcome = when (SheveryBridge.getStatus(app)) {
+                            SheveryBridge.BridgeStatus.STUB_MISSING -> LaunchOutcome.SheveryStubMissing
+                            else -> LaunchOutcome.SheveryServiceNotRunning
+                        },
+                        sheveryStatus = SheveryBridge.getStatus(app),
+                        sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                    )
+                }
+            }
         }
     }
 
@@ -155,6 +196,10 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun openPasteBoxTab() {
+        _uiState.update { it.copy(selectedTab = SelectorTab.CUSTOM) }
+    }
+
     fun updateSearchQuery(query: String) {
         _uiState.update { it.copy(appSearchQuery = query) }
     }
@@ -163,11 +208,54 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(tileSearchQuery = query) }
     }
 
+    fun updatePasteCommandText(text: String) {
+        val draft = _uiState.value.draftConfig
+        val parsed = if (text.isBlank()) {
+            null
+        } else {
+            AdbCommandParser.parse(
+                rawInput = text,
+                currentAutoLaunch = draft.autoLaunchEnabled,
+                currentPreferPrivileged = draft.preferPrivilegedLaunch,
+            )
+        }
+        _uiState.update {
+            it.copy(
+                pasteCommandText = text,
+                parsedAdbResult = parsed,
+            )
+        }
+    }
+
+    fun applyParsedCommand(
+        launchImmediately: Boolean,
+        onApplied: () -> Unit = {},
+        onLaunchSucceeded: () -> Unit = {},
+    ) {
+        val text = _uiState.value.pasteCommandText
+        val draft = _uiState.value.draftConfig
+        val parsed = AdbCommandParser.parse(
+            rawInput = text,
+            currentAutoLaunch = draft.autoLaunchEnabled,
+            currentPreferPrivileged = draft.preferPrivilegedLaunch,
+        )
+        _uiState.update { it.copy(parsedAdbResult = parsed) }
+        val config = parsed.config ?: return
+        if (launchImmediately) {
+            saveAndLaunchConfig(config, onLaunchSucceeded)
+        } else {
+            applyDraftConfig(config)
+            onApplied()
+        }
+    }
+
     fun applyDraftConfig(config: TargetIntentConfig) {
         val app = getApplication<Application>()
         _uiState.update {
             it.copy(
-                draftConfig = config,
+                draftConfig = config.copy(isConfigured = true),
+                launchOutcome = LaunchOutcome.Idle,
+                shizukuPromptOutcome = null,
                 isTargetPackageInstalled = RemoteIntentLauncher.isPackageInstalled(
                     app,
                     config.packageName,
@@ -182,6 +270,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         activityClass: String? = null,
         action: String? = null,
         dataUri: String? = null,
+        extraArgs: String? = null,
         autoLaunchEnabled: Boolean? = null,
         preferPrivilegedLaunch: Boolean? = null,
         kind: TargetKind? = null,
@@ -193,9 +282,11 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             activityClass = activityClass ?: current.activityClass,
             action = action ?: current.action,
             dataUri = dataUri ?: current.dataUri,
+            extraArgs = extraArgs ?: current.extraArgs,
             autoLaunchEnabled = autoLaunchEnabled ?: current.autoLaunchEnabled,
             preferPrivilegedLaunch = preferPrivilegedLaunch ?: current.preferPrivilegedLaunch,
             kind = kind ?: current.kind,
+            isConfigured = true,
         )
         applyDraftConfig(updated)
     }
@@ -208,6 +299,9 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                 activityClass = appInfo.launcherActivity,
                 action = "",
                 dataUri = "",
+                category = "",
+                mimeType = "",
+                extraArgs = "",
                 kind = TargetKind.ACTIVITY,
             ),
         )
@@ -221,37 +315,28 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                 activityClass = tileInfo.serviceClass,
                 action = "",
                 dataUri = "",
+                category = "",
+                mimeType = "",
+                extraArgs = "",
                 preferPrivilegedLaunch = true,
                 kind = TargetKind.QS_TILE,
             ),
         )
     }
 
-    fun selectRemoteCandidate(candidate: RemoteActivityCandidate) {
-        applyDraftConfig(
-            _uiState.value.draftConfig.copy(
-                label = "${candidate.appLabel} (${candidate.shortName})",
-                packageName = candidate.packageName,
-                activityClass = candidate.className,
-                action = "",
-                dataUri = "",
-                preferPrivilegedLaunch = true,
-                kind = TargetKind.ACTIVITY,
-            ),
-        )
-    }
-
-    fun inspectPackageActivities(label: String, packageName: String) {
+    fun inspectPackageDetails(label: String, packageName: String) {
+        val pkg = packageName.trim()
+        if (pkg.isBlank()) return
+        _uiState.update { it.copy(isInspectingApp = true) }
         viewModelScope.launch {
             val app = getApplication<Application>()
-            val activities = withContext(Dispatchers.IO) {
-                RemoteIntentLauncher.queryPackageActivities(app, packageName)
+            val result = withContext(Dispatchers.IO) {
+                RemoteIntentLauncher.inspectAppPackage(app, label, pkg)
             }
             _uiState.update {
                 it.copy(
-                    inspectedAppLabel = label,
-                    inspectedPackageName = packageName,
-                    inspectedActivities = activities,
+                    inspectedAppResult = result,
+                    isInspectingApp = false,
                 )
             }
         }
@@ -260,39 +345,85 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     fun dismissActivityInspector() {
         _uiState.update {
             it.copy(
-                inspectedAppLabel = null,
-                inspectedPackageName = null,
-                inspectedActivities = emptyList(),
+                inspectedAppResult = null,
+                isInspectingApp = false,
             )
         }
     }
 
-    fun selectInspectedActivity(activity: PackageActivityInfo) {
-        val pkg = _uiState.value.inspectedPackageName ?: return
-        val appLabel = _uiState.value.inspectedAppLabel.orEmpty()
+    fun selectAppIntentEntry(
+        entry: AppIntentEntry,
+        launchImmediately: Boolean,
+        onLaunchSucceeded: () -> Unit = {},
+    ) {
+        val appLabel = _uiState.value.inspectedAppResult?.appLabel.orEmpty()
+        val chosenLabel = if (appLabel.isNotBlank() && entry.title != appLabel) {
+            "$appLabel (${entry.title})"
+        } else {
+            entry.title
+        }
+        val config = _uiState.value.draftConfig.copy(
+            label = chosenLabel,
+            packageName = entry.packageName,
+            activityClass = entry.componentClass,
+            action = entry.action,
+            dataUri = entry.dataUri,
+            category = entry.category,
+            mimeType = entry.mimeType,
+            extraArgs = "",
+            preferPrivilegedLaunch = if (entry.kind == TargetKind.QS_TILE) {
+                true
+            } else {
+                _uiState.value.draftConfig.preferPrivilegedLaunch
+            },
+            kind = entry.kind,
+            isConfigured = true,
+        )
+        dismissActivityInspector()
+        if (launchImmediately) {
+            saveAndLaunchConfig(config, onLaunchSucceeded)
+        } else {
+            applyDraftConfig(config)
+        }
+    }
+
+    fun selectInspectedActivity(
+        activity: PackageActivityInfo,
+        launchImmediately: Boolean,
+        onLaunchSucceeded: () -> Unit = {},
+    ) {
+        val pkg = _uiState.value.inspectedAppResult?.packageName ?: return
+        val appLabel = _uiState.value.inspectedAppResult?.appLabel.orEmpty()
         val chosenLabel = if (appLabel.isNotBlank()) {
             "$appLabel (${activity.shortName})"
         } else {
             activity.label
         }
-        applyDraftConfig(
-            _uiState.value.draftConfig.copy(
-                label = chosenLabel,
-                packageName = pkg,
-                activityClass = activity.className,
-                action = "",
-                dataUri = "",
-                kind = TargetKind.ACTIVITY,
-            ),
+        val config = _uiState.value.draftConfig.copy(
+            label = chosenLabel,
+            packageName = pkg,
+            activityClass = activity.className,
+            action = "",
+            dataUri = "",
+            category = "",
+            mimeType = "",
+            extraArgs = "",
+            kind = TargetKind.ACTIVITY,
+            isConfigured = true,
         )
         dismissActivityInspector()
+        if (launchImmediately) {
+            saveAndLaunchConfig(config, onLaunchSucceeded)
+        } else {
+            applyDraftConfig(config)
+        }
     }
 
     fun saveOnly(onSaved: () -> Unit) {
-        val draft = _uiState.value.draftConfig
+        val draft = _uiState.value.draftConfig.copy(isConfigured = true)
         viewModelScope.launch {
             withContext(Dispatchers.IO) { repository.saveConfig(draft) }
-            _uiState.update { it.copy(savedConfig = draft) }
+            _uiState.update { it.copy(savedConfig = draft, draftConfig = draft) }
             onSaved()
         }
     }
@@ -303,33 +434,36 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
 
     fun saveAndLaunchConfig(config: TargetIntentConfig, onLaunchSucceeded: () -> Unit) {
         val app = getApplication<Application>()
+        val configured = config.copy(isConfigured = true)
         viewModelScope.launch {
-            _uiState.update { it.copy(isLaunchingViaShevery = true, draftConfig = config) }
-            withContext(Dispatchers.IO) { repository.saveConfig(config) }
-            val outcome = executeConfiguredLaunch(app, config)
+            _uiState.update { it.copy(isLaunchingViaShevery = true, draftConfig = configured) }
+            withContext(Dispatchers.IO) { repository.saveConfig(configured) }
+            val outcome = executeConfiguredLaunch(app, configured)
             if (outcome is LaunchOutcome.Launched) {
-                _uiState.update {
+                    _uiState.update {
                     it.copy(
-                        savedConfig = config,
+                        savedConfig = configured,
                         launchOutcome = outcome,
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = null,
                     )
                 }
                 onLaunchSucceeded()
             } else {
                 _uiState.update {
                     it.copy(
-                        savedConfig = config,
+                        savedConfig = configured,
                         launchOutcome = outcome,
                         isLaunchingViaShevery = false,
                         isTargetPackageInstalled = RemoteIntentLauncher.isPackageInstalled(
                             app,
-                            config.packageName,
+                            configured.packageName,
                         ),
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
                     )
                 }
             }
@@ -349,6 +483,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = null,
                     )
                 }
                 onLaunchSucceeded()
@@ -359,6 +494,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                         isLaunchingViaShevery = false,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                        shizukuPromptOutcome = outcome as? LaunchOutcome.ShizukuInstallRequired,
                     )
                 }
             }
@@ -388,32 +524,57 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         app: Application,
         config: TargetIntentConfig,
     ): LaunchOutcome {
-        val directOutcome = RemoteIntentLauncher.launchTarget(app, config)
-        if (directOutcome is LaunchOutcome.Launched) {
-            return directOutcome
-        }
-        val shouldFallbackToShevery = config.preferPrivilegedLaunch &&
-            (directOutcome is LaunchOutcome.PermissionDenied || directOutcome is LaunchOutcome.ActivityNotFound)
-        if (shouldFallbackToShevery) {
+        val hasShellExtras = config.extraArgs.isNotBlank()
+        if (!hasShellExtras) {
+            val directOutcome = RemoteIntentLauncher.launchTarget(app, config)
+            if (directOutcome is LaunchOutcome.Launched) {
+                return directOutcome
+            }
+
+            val blockedNatively = when (directOutcome) {
+                is LaunchOutcome.PermissionDenied -> true
+                is LaunchOutcome.ActivityNotFound -> RemoteIntentLauncher.isActivityDeclared(
+                    app,
+                    config.packageName,
+                    config.activityClass,
+                )
+                else -> false
+            }
+            if (!blockedNatively) {
+                return directOutcome
+            }
+
+            if (SheveryBridge.getStatus(app) == SheveryBridge.BridgeStatus.NOT_INSTALLED) {
+                return LaunchOutcome.ShizukuInstallRequired(
+                    packageName = config.packageName,
+                    activityClass = config.activityClass,
+                    isQsTile = config.kind == TargetKind.QS_TILE,
+                    hasShellExtras = false,
+                )
+            }
+            if (!config.preferPrivilegedLaunch) {
+                return directOutcome
+            }
             return SheveryBridge.launchViaPrivilegedService(app, config)
         }
-        return directOutcome
+
+        if (SheveryBridge.getStatus(app) == SheveryBridge.BridgeStatus.NOT_INSTALLED) {
+            return LaunchOutcome.ShizukuInstallRequired(
+                packageName = config.packageName,
+                activityClass = config.activityClass,
+                isQsTile = config.kind == TargetKind.QS_TILE,
+                hasShellExtras = true,
+            )
+        }
+        if (!config.preferPrivilegedLaunch) {
+            return LaunchOutcome.PermissionDenied(config.packageName, config.activityClass)
+        }
+        return SheveryBridge.launchViaPrivilegedService(app, config)
     }
 
     private fun loadDiscoveryData() {
-        loadQsTilesIfNeeded()
-        loadRemoteActivitiesOnDevice()
         loadInstalledAppsIfNeeded()
-    }
-
-    private fun loadRemoteActivitiesOnDevice() {
-        viewModelScope.launch {
-            val app = getApplication<Application>()
-            val candidates = withContext(Dispatchers.IO) {
-                RemoteIntentLauncher.findRemoteActivitiesOnDevice(app)
-            }
-            _uiState.update { it.copy(discoveredRemoteActivities = candidates) }
-        }
+        loadQsTilesIfNeeded()
     }
 
     private fun loadQsTilesIfNeeded() {

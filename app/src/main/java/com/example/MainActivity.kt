@@ -51,15 +51,69 @@ class MainActivity : ComponentActivity() {
                     uiState = uiState,
                     snackbarHostState = snackbarHostState,
                     onSelectTab = viewModel::selectTab,
+                    onOpenPasteBox = viewModel::openPasteBoxTab,
                     onSearchQueryChange = viewModel::updateSearchQuery,
                     onTileSearchQueryChange = viewModel::updateTileSearchQuery,
+                    onPasteTextChange = viewModel::updatePasteCommandText,
+                    onPasteFromClipboard = {
+                        val clipboard = getSystemService(ClipboardManager::class.java)
+                        val clipText = clipboard?.primaryClip
+                            ?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)
+                            ?.coerceToText(this)
+                            ?.toString()
+                            .orEmpty()
+                        if (clipText.isBlank()) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(getString(R.string.snackbar_clipboard_empty))
+                            }
+                        } else {
+                            viewModel.updatePasteCommandText(clipText)
+                        }
+                    },
+                    onApplyParsedCommand = {
+                        viewModel.applyParsedCommand(
+                            launchImmediately = false,
+                            onApplied = {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.snackbar_parsed_applied),
+                                    )
+                                }
+                            },
+                        )
+                    },
+                    onRunParsedCommand = {
+                        viewModel.applyParsedCommand(
+                            launchImmediately = true,
+                            onLaunchSucceeded = { finishAndRemoveTask() },
+                        )
+                    },
                     onSelectPreset = { preset -> viewModel.applyDraftConfig(preset.config) },
                     onSelectQsTile = viewModel::selectQsTile,
                     onSelectApp = viewModel::selectInstalledApp,
-                    onBrowseActivities = viewModel::inspectPackageActivities,
-                    onSelectActivity = { activity ->
-                        viewModel.selectInspectedActivity(activity)
-                        if (!activity.exported && !uiState.draftConfig.preferPrivilegedLaunch) {
+                    onBrowseActivities = viewModel::inspectPackageDetails,
+                    onSelectIntentEntry = { entry, runNow ->
+                        viewModel.selectAppIntentEntry(
+                            entry = entry,
+                            launchImmediately = runNow,
+                            onLaunchSucceeded = { finishAndRemoveTask() },
+                        )
+                        if (!runNow && !entry.exported && !uiState.draftConfig.preferPrivilegedLaunch) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    getString(R.string.snackbar_internal_activity_warning),
+                                )
+                            }
+                        }
+                    },
+                    onSelectActivity = { activity, runNow ->
+                        viewModel.selectInspectedActivity(
+                            activity = activity,
+                            launchImmediately = runNow,
+                            onLaunchSucceeded = { finishAndRemoveTask() },
+                        )
+                        if (!runNow && !activity.exported && !uiState.draftConfig.preferPrivilegedLaunch) {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar(
                                     getString(R.string.snackbar_internal_activity_warning),
@@ -73,6 +127,7 @@ class MainActivity : ComponentActivity() {
                     onUpdateActivity = { viewModel.updateDraftFields(activityClass = it) },
                     onUpdateAction = { viewModel.updateDraftFields(action = it) },
                     onUpdateDataUri = { viewModel.updateDraftFields(dataUri = it) },
+                    onUpdateExtraArgs = { viewModel.updateDraftFields(extraArgs = it) },
                     onUpdateKind = { viewModel.updateDraftFields(kind = it) },
                     onToggleAutoLaunch = { viewModel.updateDraftFields(autoLaunchEnabled = it) },
                     onTogglePrivilegedLaunch = {
@@ -83,16 +138,19 @@ class MainActivity : ComponentActivity() {
                             onLaunchSucceeded = { finishAndRemoveTask() },
                         )
                     },
-                    onSaveAndLaunchConfig = { config ->
-                        viewModel.saveAndLaunchConfig(
-                            config = config,
-                            onLaunchSucceeded = { finishAndRemoveTask() },
-                        )
-                    },
                     onSaveOnly = {
                         viewModel.saveOnly {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar(getString(R.string.snackbar_saved))
+                            }
+                        }
+                    },
+                    onRequestSheveryPermission = {
+                        viewModel.requestSheveryPermissionNow {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    getString(R.string.snackbar_shevery_granted),
+                                )
                             }
                         }
                     },
@@ -110,6 +168,25 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onInstallShizuku = {
+                        if (!SheveryBridge.openShizukuInstall(this)) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    getString(R.string.snackbar_play_store_unavailable),
+                                )
+                            }
+                        }
+                    },
+                    onGetShevery = {
+                        if (!SheveryBridge.openSheveryReleases(this)) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    getString(R.string.snackbar_browser_unavailable),
+                                )
+                            }
+                        }
+                    },
+                    onDismissShizukuPrompt = viewModel::dismissShizukuPrompt,
                     onOpenGoogleTv = {
                         if (RemoteIntentLauncher.launchGoogleTvApp(this)) {
                             finishAndRemoveTask()

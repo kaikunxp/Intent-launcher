@@ -2,7 +2,6 @@ package com.example.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,13 +11,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -30,12 +25,9 @@ import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -46,10 +38,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,12 +48,10 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreset
-import com.example.launcher.PackageActivityInfo
+import com.example.launcher.ParsedAdbResult
 import com.example.launcher.QsTileInfo
 import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
-import com.example.ui.theme.EmeraldContainer
-import com.example.ui.theme.EmeraldOk
 
 @Composable
 fun PresetsTabContent(
@@ -106,7 +92,7 @@ fun PresetsTabContent(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     val icon = when (preset.id) {
-                        "google_tv_remote" -> Icons.Filled.SettingsRemote
+                        "google_tv_remote_legacy" -> Icons.Filled.SettingsRemote
                         "google_tv_app" -> Icons.Filled.Tv
                         else -> Icons.Filled.Apps
                     }
@@ -198,6 +184,7 @@ fun QsTilesTabContent(
         } else {
             tiles.filter {
                 it.label.lowercase().contains(query) ||
+                    it.appLabel.lowercase().contains(query) ||
                     it.packageName.lowercase().contains(query) ||
                     it.serviceClass.lowercase().contains(query)
             }
@@ -305,35 +292,15 @@ fun QsTilesTabContent(
                                 }
 
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Text(
-                                            text = tile.label,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                        )
-                                        if (tile.isRemoteCandidate) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(CircleShape)
-                                                    .background(EmeraldContainer)
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.label_remote_candidate_badge),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = EmeraldOk,
-                                                )
-                                            }
-                                        }
-                                    }
                                     Text(
-                                        text = "${tile.packageName}/${tile.serviceClass.substringAfterLast('.')}",
+                                        text = tile.label,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${tile.appLabel} • ${tile.serviceClass.substringAfterLast('.')}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -462,7 +429,7 @@ fun InstalledAppsTabContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onSelectApp(appInfo) }
+                                .clickable { onBrowseActivities(appInfo) }
                                 .testTag("app_item_${appInfo.packageName}"),
                             shape = RoundedCornerShape(16.dp),
                             color = if (isSelected) {
@@ -528,6 +495,18 @@ fun InstalledAppsTabContent(
                                     )
                                 }
 
+                                if (appInfo.hasLauncherEntry) {
+                                    TextButton(
+                                        onClick = { onSelectApp(appInfo) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.action_use_main_launcher),
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                    }
+                                }
+
                                 TextButton(
                                     onClick = { onBrowseActivities(appInfo) },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -556,17 +535,33 @@ fun InstalledAppsTabContent(
 fun CustomIntentTabContent(
     draftConfig: TargetIntentConfig,
     isTargetInstalled: Boolean,
+    pasteText: String,
+    parsedResult: ParsedAdbResult?,
+    onPasteTextChange: (String) -> Unit,
+    onPasteFromClipboard: () -> Unit,
+    onApplyParsed: () -> Unit,
+    onRunParsed: () -> Unit,
     onUpdateLabel: (String) -> Unit,
     onUpdatePackage: (String) -> Unit,
     onUpdateActivity: (String) -> Unit,
     onUpdateAction: (String) -> Unit,
     onUpdateDataUri: (String) -> Unit,
+    onUpdateExtraArgs: (String) -> Unit,
     onUpdateKind: (TargetKind) -> Unit,
     onToggleAutoLaunch: (Boolean) -> Unit,
     onTogglePrivilegedLaunch: (Boolean) -> Unit,
     onInspectActivities: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CustomPasteBoxCard(
+            pasteText = pasteText,
+            parsedResult = parsedResult,
+            onPasteTextChange = onPasteTextChange,
+            onPasteFromClipboard = onPasteFromClipboard,
+            onApplyParsed = onApplyParsed,
+            onRunParsed = onRunParsed,
+        )
+
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             val kinds = listOf(
                 TargetKind.ACTIVITY to "Activity Intent",
@@ -641,7 +636,7 @@ fun CustomIntentTabContent(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.action_browse_activities))
+                Text(stringResource(R.string.action_inspect_exported))
             }
         }
 
@@ -668,6 +663,18 @@ fun CustomIntentTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("custom_uri_input"),
+            )
+
+            OutlinedTextField(
+                value = draftConfig.extraArgs,
+                onValueChange = onUpdateExtraArgs,
+                label = { Text(stringResource(R.string.label_extra_args)) },
+                placeholder = { Text(stringResource(R.string.hint_extra_args)) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("custom_extra_args_input"),
             )
         }
 
@@ -736,170 +743,6 @@ fun CustomIntentTabContent(
                     onCheckedChange = onTogglePrivilegedLaunch,
                     modifier = Modifier.testTag("use_shevery_switch"),
                 )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ActivityInspectorBottomSheet(
-    appLabel: String,
-    activities: List<PackageActivityInfo>,
-    defaultExportedOnly: Boolean,
-    onSelectActivity: (PackageActivityInfo) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        var exportedOnly by remember(appLabel) { mutableStateOf(defaultExportedOnly) }
-        var searchQuery by remember(appLabel) { mutableStateOf("") }
-
-        val query = searchQuery.trim().lowercase()
-        val visibleActivities = activities.filter { act ->
-            val matchesExported = !exportedOnly || act.exported
-            val matchesQuery = query.isEmpty() ||
-                act.shortName.lowercase().contains(query) ||
-                act.className.lowercase().contains(query)
-            matchesExported && matchesQuery
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.sheet_activities_title, appLabel),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (activities.isNotEmpty()) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    placeholder = { Text(stringResource(R.string.hint_search_activities)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = stringResource(R.string.cd_search_icon),
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Clear,
-                                    contentDescription = stringResource(R.string.cd_clear_search),
-                                )
-                            }
-                        }
-                    },
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                FilterChip(
-                    selected = exportedOnly,
-                    onClick = { exportedOnly = !exportedOnly },
-                    label = { Text(stringResource(R.string.filter_exported_only)) },
-                    modifier = Modifier.testTag("filter_exported_only_chip"),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (activities.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.empty_activities_message),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
-            } else if (visibleActivities.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.empty_exported_activities_message),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(visibleActivities, key = { it.className }) { activity ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onSelectActivity(activity) },
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = activity.shortName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = activity.className,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (activity.exported) {
-                                                EmeraldContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.tertiaryContainer
-                                            },
-                                        )
-                                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(
-                                            if (activity.exported) {
-                                                R.string.label_exported
-                                            } else {
-                                                R.string.label_internal
-                                            },
-                                        ),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (activity.exported) {
-                                            EmeraldOk
-                                        } else {
-                                            MaterialTheme.colorScheme.onTertiaryContainer
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }

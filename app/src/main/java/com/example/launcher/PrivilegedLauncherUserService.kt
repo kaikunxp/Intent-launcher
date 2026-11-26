@@ -18,8 +18,13 @@ class PrivilegedLauncherUserService : IRemoteShellService.Stub {
     }
 
     override fun runPrivilegedCommand(args: Array<out String>): String {
-        val isAmStart = args.size >= 3 && args[0] == "am" && args[1] == "start"
-        val isStatusBarCmd = args.size >= 3 && args[0] == "cmd" && args[1] == "statusbar"
+        val isAmStart = args.size >= 3 &&
+            args[0] == "am" &&
+            (args[1] == "start" || args[1] == "start-activity")
+        val isStatusBarCmd = args.size >= 4 &&
+            args[0] == "cmd" &&
+            args[1] == "statusbar" &&
+            args[2] == "click-tile"
         if (!isAmStart && !isStatusBarCmd) {
             return "Unsupported privileged command."
         }

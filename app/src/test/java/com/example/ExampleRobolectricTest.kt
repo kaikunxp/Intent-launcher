@@ -29,9 +29,17 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `default target intent targets Google TV RemoteDevicesListActivity`() {
+    fun `default target intent is empty until configured`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val intent = RemoteIntentLauncher.buildIntent(context, TargetIntentConfig.Default)
+        assertNull(intent)
+    }
+
+    @Test
+    fun `legacy google tv remote preset targets RemoteDevicesListActivity`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val legacyPreset = TargetIntentConfig.Presets.first { it.id == "google_tv_remote_legacy" }
+        val intent = RemoteIntentLauncher.buildIntent(context, legacyPreset.config)
         assertNotNull(intent)
         assertEquals("com.google.android.videos", intent?.component?.packageName)
         assertEquals(

@@ -33,10 +33,24 @@ class IntentPreferencesRepository(private val context: Context) {
             prefs[KEY_ACTIVITY] = config.activityClass.trim()
             prefs[KEY_ACTION] = config.action.trim()
             prefs[KEY_DATA_URI] = config.dataUri.trim()
+            prefs[KEY_CATEGORY] = config.category.trim()
+            prefs[KEY_MIME_TYPE] = config.mimeType.trim()
+            prefs[KEY_EXTRA_ARGS] = config.extraArgs.trim()
             prefs[KEY_AUTO_LAUNCH] = config.autoLaunchEnabled
             prefs[KEY_PREFER_PRIVILEGED] = config.preferPrivilegedLaunch
             prefs[KEY_TARGET_KIND] = config.kind.name
             prefs[KEY_HAS_SAVED_CONFIG] = true
+        }
+    }
+
+    suspend fun hasRequestedStartupPermission(): Boolean {
+        val prefs = context.intentDataStore.data.first()
+        return prefs[KEY_STARTUP_SHIZUKU_REQUESTED] ?: false
+    }
+
+    suspend fun markStartupPermissionRequested() {
+        context.intentDataStore.edit { prefs ->
+            prefs[KEY_STARTUP_SHIZUKU_REQUESTED] = true
         }
     }
 
@@ -55,19 +69,27 @@ class IntentPreferencesRepository(private val context: Context) {
             activityClass = prefs[KEY_ACTIVITY].orEmpty(),
             action = prefs[KEY_ACTION].orEmpty(),
             dataUri = prefs[KEY_DATA_URI].orEmpty(),
+            category = prefs[KEY_CATEGORY].orEmpty(),
+            mimeType = prefs[KEY_MIME_TYPE].orEmpty(),
+            extraArgs = prefs[KEY_EXTRA_ARGS].orEmpty(),
             autoLaunchEnabled = prefs[KEY_AUTO_LAUNCH] ?: true,
             preferPrivilegedLaunch = prefs[KEY_PREFER_PRIVILEGED] ?: true,
             kind = kind,
+            isConfigured = true,
         )
     }
 
     private companion object {
         val KEY_HAS_SAVED_CONFIG = booleanPreferencesKey("has_saved_config")
+        val KEY_STARTUP_SHIZUKU_REQUESTED = booleanPreferencesKey("startup_shizuku_requested")
         val KEY_LABEL = stringPreferencesKey("target_label")
         val KEY_PACKAGE = stringPreferencesKey("target_package")
         val KEY_ACTIVITY = stringPreferencesKey("target_activity")
         val KEY_ACTION = stringPreferencesKey("target_action")
         val KEY_DATA_URI = stringPreferencesKey("target_data_uri")
+        val KEY_CATEGORY = stringPreferencesKey("target_category")
+        val KEY_MIME_TYPE = stringPreferencesKey("target_mime_type")
+        val KEY_EXTRA_ARGS = stringPreferencesKey("target_extra_args")
         val KEY_AUTO_LAUNCH = booleanPreferencesKey("auto_launch_enabled")
         val KEY_PREFER_PRIVILEGED = booleanPreferencesKey("prefer_privileged_launch")
         val KEY_TARGET_KIND = stringPreferencesKey("target_kind")

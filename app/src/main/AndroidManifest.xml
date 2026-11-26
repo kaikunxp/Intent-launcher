@@ -6,14 +6,35 @@
         <package android:name="com.google.android.videos" />
         <package android:name="com.google.android.apps.chromecast.app" />
         <package android:name="com.google.android.gms" />
+        <package android:name="com.android.settings" />
         <package android:name="com.hamondev.shevery" />
         <package android:name="moe.shizuku.privileged.api" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
             <action android:name="android.service.quicksettings.action.QS_TILE" />
+        </intent>
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
         </intent>
     </queries>
 

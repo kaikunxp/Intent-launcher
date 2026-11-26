@@ -34,8 +34,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Shop
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,11 +68,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.launcher.AppIntentEntry
 import com.example.launcher.InstalledAppInfo
 import com.example.launcher.IntentPreset
 import com.example.launcher.PackageActivityInfo
 import com.example.launcher.QsTileInfo
-import com.example.launcher.RemoteActivityCandidate
 import com.example.launcher.RemoteIntentLauncher.LaunchOutcome
 import com.example.launcher.SheveryBridge.BridgeStatus
 import com.example.launcher.TargetIntentConfig
@@ -84,27 +85,37 @@ fun RemoteLauncherScreen(
     uiState: RemoteLauncherUiState,
     snackbarHostState: SnackbarHostState,
     onSelectTab: (SelectorTab) -> Unit,
+    onOpenPasteBox: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onTileSearchQueryChange: (String) -> Unit,
+    onPasteTextChange: (String) -> Unit,
+    onPasteFromClipboard: () -> Unit,
+    onApplyParsedCommand: () -> Unit,
+    onRunParsedCommand: () -> Unit,
     onSelectPreset: (IntentPreset) -> Unit,
     onSelectQsTile: (QsTileInfo) -> Unit,
     onSelectApp: (InstalledAppInfo) -> Unit,
     onBrowseActivities: (String, String) -> Unit,
-    onSelectActivity: (PackageActivityInfo) -> Unit,
+    onSelectIntentEntry: (AppIntentEntry, Boolean) -> Unit,
+    onSelectActivity: (PackageActivityInfo, Boolean) -> Unit,
     onDismissActivitiesSheet: () -> Unit,
     onUpdateLabel: (String) -> Unit,
     onUpdatePackage: (String) -> Unit,
     onUpdateActivity: (String) -> Unit,
     onUpdateAction: (String) -> Unit,
     onUpdateDataUri: (String) -> Unit,
+    onUpdateExtraArgs: (String) -> Unit,
     onUpdateKind: (TargetKind) -> Unit,
     onToggleAutoLaunch: (Boolean) -> Unit,
     onTogglePrivilegedLaunch: (Boolean) -> Unit,
     onSaveAndLaunch: () -> Unit,
-    onSaveAndLaunchConfig: (TargetIntentConfig) -> Unit,
     onSaveOnly: () -> Unit,
+    onRequestSheveryPermission: () -> Unit,
     onLaunchViaShevery: () -> Unit,
     onOpenShevery: () -> Unit,
+    onInstallShizuku: () -> Unit,
+    onGetShevery: () -> Unit,
+    onDismissShizukuPrompt: () -> Unit,
     onOpenGoogleTv: () -> Unit,
     onOpenPlayStore: (String) -> Unit,
     onCopyComponent: () -> Unit,
@@ -169,58 +180,32 @@ fun RemoteLauncherScreen(
                     sheveryDiagnostic = uiState.sheveryDiagnostic,
                     isGoogleTvInstalled = uiState.isGoogleTvInstalled,
                     isTargetInstalled = uiState.isTargetPackageInstalled,
+                    onRequestSheveryPermission = onRequestSheveryPermission,
                     onOpenShevery = onOpenShevery,
                     onLaunchViaShevery = onLaunchViaShevery,
+                    onInstallShizuku = onInstallShizuku,
+                    onGetShevery = onGetShevery,
                     onOpenGoogleTv = onOpenGoogleTv,
                     onOpenPlayStore = onOpenPlayStore,
                     onInspectPackage = { pkg ->
-                        val label = if (pkg == TargetIntentConfig.DEFAULT_PACKAGE) {
-                            "Google TV"
-                        } else {
-                            uiState.draftConfig.label.ifBlank { pkg }
-                        }
+                        val label = uiState.draftConfig.label.ifBlank { pkg }
                         onBrowseActivities(label, pkg)
                     },
                 )
-
-                val remoteTiles = uiState.qsTiles.filter { it.isRemoteCandidate }
-                val remoteActivities = uiState.discoveredRemoteActivities
-                if (remoteTiles.isNotEmpty() || remoteActivities.isNotEmpty()) {
-                    DiscoveredRemoteTargetsCard(
-                        remoteTiles = remoteTiles.take(4),
-                        remoteActivities = remoteActivities.take(5),
-                        onLaunchTile = { tile ->
-                            onSaveAndLaunchConfig(
-                                TargetIntentConfig(
-                                    label = "${tile.label} (QS Tile)",
-                                    packageName = tile.packageName,
-                                    activityClass = tile.serviceClass,
-                                    autoLaunchEnabled = true,
-                                    preferPrivilegedLaunch = true,
-                                    kind = TargetKind.QS_TILE,
-                                ),
-                            )
-                        },
-                        onLaunchActivity = { candidate ->
-                            onSaveAndLaunchConfig(
-                                TargetIntentConfig(
-                                    label = "${candidate.appLabel} (${candidate.shortName})",
-                                    packageName = candidate.packageName,
-                                    activityClass = candidate.className,
-                                    autoLaunchEnabled = true,
-                                    preferPrivilegedLaunch = true,
-                                    kind = TargetKind.ACTIVITY,
-                                ),
-                            )
-                        },
-                    )
-                }
 
                 SelectedTargetSummaryCard(
                     draftConfig = uiState.draftConfig,
                     isTargetInstalled = uiState.isTargetPackageInstalled,
                     sheveryStatus = uiState.sheveryStatus,
                     isLaunchingViaShevery = uiState.isLaunchingViaShevery,
+                    onSheveryPillClick = {
+                        when (uiState.sheveryStatus) {
+                            BridgeStatus.PERMISSION_REQUIRED -> onRequestSheveryPermission()
+                            BridgeStatus.NOT_INSTALLED -> Unit
+                            else -> onOpenShevery()
+                        }
+                    },
+                    onOpenPasteBox = onOpenPasteBox,
                     onCopyComponent = onCopyComponent,
                     onSaveAndLaunch = onSaveAndLaunch,
                     onSaveOnly = onSaveOnly,
@@ -230,9 +215,9 @@ fun RemoteLauncherScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     val tabs = listOf(
-                        SelectorTab.PRESETS to stringResource(R.string.tab_presets),
-                        SelectorTab.QS_TILES to stringResource(R.string.tab_qs_tiles),
                         SelectorTab.APPS to stringResource(R.string.tab_apps),
+                        SelectorTab.QS_TILES to stringResource(R.string.tab_qs_tiles),
+                        SelectorTab.PRESETS to stringResource(R.string.tab_presets),
                         SelectorTab.CUSTOM to stringResource(R.string.tab_custom),
                     )
                     tabs.forEachIndexed { index, (tab, title) ->
@@ -252,24 +237,6 @@ fun RemoteLauncherScreen(
                 }
 
                 when (uiState.selectedTab) {
-                    SelectorTab.PRESETS -> {
-                        PresetsTabContent(
-                            selectedConfig = uiState.draftConfig,
-                            onSelectPreset = onSelectPreset,
-                        )
-                    }
-
-                    SelectorTab.QS_TILES -> {
-                        QsTilesTabContent(
-                            tiles = uiState.qsTiles,
-                            isLoading = uiState.isLoadingTiles,
-                            searchQuery = uiState.tileSearchQuery,
-                            selectedConfig = uiState.draftConfig,
-                            onSearchQueryChange = onTileSearchQueryChange,
-                            onSelectTile = onSelectQsTile,
-                        )
-                    }
-
                     SelectorTab.APPS -> {
                         InstalledAppsTabContent(
                             apps = uiState.installedApps,
@@ -285,15 +252,40 @@ fun RemoteLauncherScreen(
                         )
                     }
 
+                    SelectorTab.QS_TILES -> {
+                        QsTilesTabContent(
+                            tiles = uiState.qsTiles,
+                            isLoading = uiState.isLoadingTiles,
+                            searchQuery = uiState.tileSearchQuery,
+                            selectedConfig = uiState.draftConfig,
+                            onSearchQueryChange = onTileSearchQueryChange,
+                            onSelectTile = onSelectQsTile,
+                        )
+                    }
+
+                    SelectorTab.PRESETS -> {
+                        PresetsTabContent(
+                            selectedConfig = uiState.draftConfig,
+                            onSelectPreset = onSelectPreset,
+                        )
+                    }
+
                     SelectorTab.CUSTOM -> {
                         CustomIntentTabContent(
                             draftConfig = uiState.draftConfig,
                             isTargetInstalled = uiState.isTargetPackageInstalled,
+                            pasteText = uiState.pasteCommandText,
+                            parsedResult = uiState.parsedAdbResult,
+                            onPasteTextChange = onPasteTextChange,
+                            onPasteFromClipboard = onPasteFromClipboard,
+                            onApplyParsed = onApplyParsedCommand,
+                            onRunParsed = onRunParsedCommand,
                             onUpdateLabel = onUpdateLabel,
                             onUpdatePackage = onUpdatePackage,
                             onUpdateActivity = onUpdateActivity,
                             onUpdateAction = onUpdateAction,
                             onUpdateDataUri = onUpdateDataUri,
+                            onUpdateExtraArgs = onUpdateExtraArgs,
                             onUpdateKind = onUpdateKind,
                             onToggleAutoLaunch = onToggleAutoLaunch,
                             onTogglePrivilegedLaunch = onTogglePrivilegedLaunch,
@@ -311,136 +303,105 @@ fun RemoteLauncherScreen(
         }
     }
 
-    val inspectedApp = uiState.inspectedAppLabel
-    if (inspectedApp != null) {
-        ActivityInspectorBottomSheet(
-            appLabel = inspectedApp,
-            activities = uiState.inspectedActivities,
+    val inspection = uiState.inspectedAppResult
+    if (inspection != null) {
+        AppIntentsBottomSheet(
+            inspection = inspection,
             defaultExportedOnly = !uiState.draftConfig.preferPrivilegedLaunch,
+            onSelectIntentEntry = onSelectIntentEntry,
             onSelectActivity = onSelectActivity,
             onDismiss = onDismissActivitiesSheet,
+        )
+    }
+
+    val shizukuPrompt = uiState.shizukuPromptOutcome
+    if (shizukuPrompt != null) {
+        ShizukuRequiredDialog(
+            outcome = shizukuPrompt,
+            onInstallShizuku = {
+                onDismissShizukuPrompt()
+                onInstallShizuku()
+            },
+            onGetShevery = {
+                onDismissShizukuPrompt()
+                onGetShevery()
+            },
+            onDismiss = onDismissShizukuPrompt,
         )
     }
 }
 
 @Composable
-private fun DiscoveredRemoteTargetsCard(
-    remoteTiles: List<QsTileInfo>,
-    remoteActivities: List<RemoteActivityCandidate>,
-    onLaunchTile: (QsTileInfo) -> Unit,
-    onLaunchActivity: (RemoteActivityCandidate) -> Unit,
+private fun ShizukuRequiredDialog(
+    outcome: LaunchOutcome.ShizukuInstallRequired,
+    onInstallShizuku: () -> Unit,
+    onGetShevery: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.label_discovered_on_device),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-
-            remoteTiles.forEach { tile ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onLaunchTile(tile) }
-                        .testTag("discovered_tile_${tile.serviceClass}"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Tune,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "${tile.label} • Quick Settings Tile",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = "${tile.packageName}/${tile.serviceClass.substringAfterLast('.')}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_launch_icon),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-
-            remoteActivities.forEach { candidate ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onLaunchActivity(candidate) }
-                        .testTag("discovered_activity_${candidate.shortName}"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.SettingsRemote,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "${candidate.appLabel} • ${candidate.shortName}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = candidate.className,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_launch_icon),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-        }
+    val messageRes = when {
+        outcome.isQsTile -> R.string.status_shizuku_required_message_tile
+        outcome.hasShellExtras -> R.string.status_shizuku_required_message_extras
+        else -> R.string.status_shizuku_required_message_activity
     }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.AdminPanelSettings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.status_shizuku_required_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(messageRes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = onGetShevery,
+                    modifier = Modifier.testTag("dialog_get_shevery_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.action_get_shevery))
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onInstallShizuku,
+                modifier = Modifier.testTag("dialog_install_shizuku_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Shop,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(stringResource(R.string.action_install_shizuku))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dialog_dismiss_shizuku_button"),
+            ) {
+                Text(stringResource(R.string.action_dismiss))
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -451,8 +412,11 @@ private fun StatusBannerCard(
     sheveryDiagnostic: String,
     isGoogleTvInstalled: Boolean,
     isTargetInstalled: Boolean,
+    onRequestSheveryPermission: () -> Unit,
     onOpenShevery: () -> Unit,
     onLaunchViaShevery: () -> Unit,
+    onInstallShizuku: () -> Unit,
+    onGetShevery: () -> Unit,
     onOpenGoogleTv: () -> Unit,
     onOpenPlayStore: (String) -> Unit,
     onInspectPackage: (String) -> Unit,
@@ -467,7 +431,7 @@ private fun StatusBannerCard(
             missingPkg = null,
             inspectablePkg = null,
             showGoogleTvShortcut = false,
-            showSheveryActions = false,
+            showSheveryActions = sheveryStatus == BridgeStatus.PERMISSION_REQUIRED,
         )
 
         is LaunchOutcome.AppNotInstalled -> BannerVisual(
@@ -506,6 +470,26 @@ private fun StatusBannerCard(
             showSheveryActions = sheveryStatus != BridgeStatus.NOT_INSTALLED,
         )
 
+        is LaunchOutcome.ShizukuInstallRequired -> {
+            val messageRes = when {
+                outcome.isQsTile -> R.string.status_shizuku_required_message_tile
+                outcome.hasShellExtras -> R.string.status_shizuku_required_message_extras
+                else -> R.string.status_shizuku_required_message_activity
+            }
+            BannerVisual(
+                icon = Icons.Filled.Lock,
+                tint = MaterialTheme.colorScheme.error,
+                container = MaterialTheme.colorScheme.errorContainer,
+                title = stringResource(R.string.status_shizuku_required_title),
+                message = stringResource(messageRes),
+                missingPkg = null,
+                inspectablePkg = outcome.packageName.takeIf { it.isNotBlank() && isTargetInstalled },
+                showGoogleTvShortcut = outcome.packageName == TargetIntentConfig.DEFAULT_PACKAGE && isGoogleTvInstalled,
+                showSheveryActions = false,
+                showInstallShizukuActions = true,
+            )
+        }
+
         LaunchOutcome.SheveryStubMissing -> BannerVisual(
             icon = Icons.Filled.AdminPanelSettings,
             tint = MaterialTheme.colorScheme.tertiary,
@@ -514,7 +498,7 @@ private fun StatusBannerCard(
             message = stringResource(R.string.status_shevery_stub_missing_message),
             missingPkg = null,
             inspectablePkg = null,
-            showGoogleTvShortcut = isGoogleTvInstalled,
+            showGoogleTvShortcut = false,
             showSheveryActions = true,
         )
 
@@ -526,7 +510,7 @@ private fun StatusBannerCard(
             message = stringResource(R.string.status_shevery_not_running_message),
             missingPkg = null,
             inspectablePkg = null,
-            showGoogleTvShortcut = isGoogleTvInstalled,
+            showGoogleTvShortcut = false,
             showSheveryActions = true,
         )
 
@@ -538,7 +522,7 @@ private fun StatusBannerCard(
             message = stringResource(R.string.status_shevery_permission_message),
             missingPkg = null,
             inspectablePkg = null,
-            showGoogleTvShortcut = isGoogleTvInstalled,
+            showGoogleTvShortcut = false,
             showSheveryActions = true,
         )
 
@@ -644,13 +628,61 @@ private fun StatusBannerCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(stringResource(R.string.action_install_google_tv))
                 }
-            } else if (visual.showSheveryActions || visual.showGoogleTvShortcut || visual.inspectablePkg != null) {
+            } else if (
+                visual.showSheveryActions ||
+                visual.showInstallShizukuActions ||
+                visual.showGoogleTvShortcut ||
+                visual.inspectablePkg != null
+            ) {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
+                    if (visual.showInstallShizukuActions) {
+                        TextButton(
+                            onClick = onInstallShizuku,
+                            modifier = Modifier.testTag("banner_install_shizuku_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Shop,
+                                contentDescription = stringResource(R.string.cd_external_app_icon),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_install_shizuku))
+                        }
+
+                        TextButton(
+                            onClick = onGetShevery,
+                            modifier = Modifier.testTag("banner_get_shevery_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = stringResource(R.string.cd_external_app_icon),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_get_shevery))
+                        }
+                    }
+
                     if (visual.showSheveryActions) {
+                        if (sheveryStatus == BridgeStatus.PERMISSION_REQUIRED) {
+                            TextButton(
+                                onClick = onRequestSheveryPermission,
+                                modifier = Modifier.testTag("grant_shevery_permission_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AdminPanelSettings,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.action_grant_shevery))
+                            }
+                        }
+
                         TextButton(
                             onClick = onOpenShevery,
                             modifier = Modifier.testTag("open_shevery_button"),
@@ -664,17 +696,19 @@ private fun StatusBannerCard(
                             Text(stringResource(R.string.action_open_shevery))
                         }
 
-                        TextButton(
-                            onClick = onLaunchViaShevery,
-                            modifier = Modifier.testTag("retry_shevery_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.action_retry_shevery))
+                        if (outcome != LaunchOutcome.Idle) {
+                            TextButton(
+                                onClick = onLaunchViaShevery,
+                                modifier = Modifier.testTag("retry_shevery_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.action_retry_shevery))
+                            }
                         }
                     }
 
@@ -719,6 +753,8 @@ private fun SelectedTargetSummaryCard(
     isTargetInstalled: Boolean,
     sheveryStatus: BridgeStatus,
     isLaunchingViaShevery: Boolean,
+    onSheveryPillClick: () -> Unit,
+    onOpenPasteBox: () -> Unit,
     onCopyComponent: () -> Unit,
     onSaveAndLaunch: () -> Unit,
     onSaveOnly: () -> Unit,
@@ -775,6 +811,7 @@ private fun SelectedTargetSummaryCard(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(sheveryBg)
+                                .clickable(onClick = onSheveryPillClick)
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                         ) {
                             Text(
@@ -824,7 +861,9 @@ private fun SelectedTargetSummaryCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = draftConfig.label.ifBlank { draftConfig.packageName.ifBlank { "Custom Intent" } },
+                        text = draftConfig.label.ifBlank {
+                            draftConfig.packageName.ifBlank { "No Target Selected" }
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -837,6 +876,17 @@ private fun SelectedTargetSummaryCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenPasteBox,
+                    modifier = Modifier.testTag("quick_paste_adb_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Terminal,
+                        contentDescription = stringResource(R.string.action_paste_adb_tab),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
 
@@ -926,4 +976,5 @@ private data class BannerVisual(
     val inspectablePkg: String?,
     val showGoogleTvShortcut: Boolean,
     val showSheveryActions: Boolean,
+    val showInstallShizukuActions: Boolean = false,
 )
