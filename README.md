@@ -14,9 +14,9 @@
 
 ## Screenshots
 
-| Presets & Shizuku Locking | Per-App Intents Inspector | Custom ADB & Auto-Launch | Shizuku / Shevery Prompt |
+| Home & App Browser | Per-App Intents Inspector | Shizuku-Locked Tiles | Shizuku / Shevery Prompt |
 | :---: | :---: | :---: | :---: |
-| <img src="docs/screenshots/home-presets.jpg" alt="Presets tab showing native-ready items and dimmed Shizuku-locked items" width="210" /> | <img src="docs/screenshots/intents-sheet.jpg" alt="App intents bottom sheet with Exported and Shizuku / Shevery badges" width="210" /> | <img src="docs/screenshots/custom-adb.jpg" alt="Custom ADB command paste box and auto-launch switches" width="210" /> | <img src="docs/screenshots/shizuku-prompt.jpg" alt="Shizuku or Shevery required dialog over dimmed tiles" width="210" /> |
+| <img src="docs/screenshots/apps-home.png" alt="Button Intent Launcher home screen and installed apps browser" width="210" /> | <img src="docs/screenshots/intents-sheet.png" alt="Per-app intents inspector bottom sheet for Android Settings" width="210" /> | <img src="docs/screenshots/tiles-locked.png" alt="Quick Settings tiles tab showing dimmed rows and Shizuku / Shevery lock pills" width="210" /> | <img src="docs/screenshots/shizuku-prompt.png" alt="Shizuku or Shevery required dialog when tapping a locked tile" width="210" /> |
 
 ---
 
