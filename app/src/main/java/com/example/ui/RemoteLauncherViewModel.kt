@@ -19,6 +19,7 @@ import com.example.launcher.ShizukuRequirementReason
 import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +70,7 @@ data class RemoteLauncherUiState(
 
 class RemoteLauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = IntentPreferencesRepository(application)
+    private var initializeJob: Job? = null
 
     private val _uiState = MutableStateFlow(RemoteLauncherUiState())
     val uiState: StateFlow<RemoteLauncherUiState> = _uiState.asStateFlow()
@@ -109,7 +111,11 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun initialize(forceConfigure: Boolean, onAutoLaunchSucceeded: () -> Unit) {
-        viewModelScope.launch {
+        initializeJob?.cancel()
+        initializeJob = viewModelScope.launch {
+            if (!forceConfigure) {
+                _uiState.update { it.copy(isInitializing = true) }
+            }
             val config = withContext(Dispatchers.IO) { repository.getConfig() }
             val app = getApplication<Application>()
 

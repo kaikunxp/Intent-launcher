@@ -10,6 +10,7 @@ import android.os.IBinder
 import com.example.BuildConfig
 import com.example.IRemoteShellService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -248,7 +249,7 @@ object SheveryBridge {
             )
         }
 
-        val binderReady = awaitBinderAvailable()
+        val binderReady = awaitBinderAvailable(timeoutMs = 3_500L)
         if (!binderReady) {
             return when (getStatus(context)) {
                 BridgeStatus.STUB_MISSING -> RemoteIntentLauncher.LaunchOutcome.SheveryStubMissing
@@ -287,67 +288,89 @@ object SheveryBridge {
             .version(BuildConfig.VERSION_CODE)
 
         return withContext(Dispatchers.Main) {
-            var activeConnection: ServiceConnection? = null
-            try {
-                val service = withTimeoutOrNull(5_000L) {
-                    suspendCancellableCoroutine<IRemoteShellService?> { cont ->
-                        val connection = object : ServiceConnection {
-                            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                                val resolved = if (binder != null && binder.pingBinder()) {
-                                    IRemoteShellService.Stub.asInterface(binder)
-                                } else {
-                                    null
+            var lastFailure: String? = null
+            for (attempt in 0..1) {
+                var activeConnection: ServiceConnection? = null
+                try {
+                    val service = withTimeoutOrNull(5_000L) {
+                        suspendCancellableCoroutine<IRemoteShellService?> { cont ->
+                            val connection = object : ServiceConnection {
+                                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                                    val resolved = if (binder != null && binder.pingBinder()) {
+                                        IRemoteShellService.Stub.asInterface(binder)
+                                    } else {
+                                        null
+                                    }
+                                    if (cont.isActive) {
+                                        cont.resume(resolved)
+                                    }
                                 }
-                                if (cont.isActive) {
-                                    cont.resume(resolved)
-                                }
-                            }
 
-                            override fun onServiceDisconnected(name: ComponentName?) {
-                                if (cont.isActive) {
-                                    cont.resume(null)
+                                override fun onServiceDisconnected(name: ComponentName?) {
+                                    if (cont.isActive) {
+                                        cont.resume(null)
+                                    }
                                 }
                             }
+                            activeConnection = connection
+                            Shizuku.bindUserService(userServiceArgs, connection)
                         }
-                        activeConnection = connection
-                        Shizuku.bindUserService(userServiceArgs, connection)
                     }
-                } ?: return@withContext RemoteIntentLauncher.LaunchOutcome.Failed(
-                    "Timed out connecting to Shevery / Shizuku user service.",
-                )
 
-                val errorOutput = withContext(Dispatchers.IO) {
-                    service.runPrivilegedCommand(args)
-                }
+                    if (service == null) {
+                        lastFailure = "Timed out connecting to Shevery / Shizuku user service."
+                        if (attempt == 0) {
+                            delay(250L)
+                            continue
+                        }
+                        return@withContext RemoteIntentLauncher.LaunchOutcome.Failed(lastFailure)
+                    }
 
-                if (errorOutput.isBlank()) {
-                    RemoteIntentLauncher.LaunchOutcome.Launched
-                } else if (
-                    errorOutput.contains("does not exist", ignoreCase = true) ||
-                    errorOutput.contains("unable to resolve", ignoreCase = true) ||
-                    errorOutput.contains("ActivityNotFoundException", ignoreCase = true)
-                ) {
-                    if (config.packageName.isNotBlank() &&
-                        !RemoteIntentLauncher.isPackageInstalled(context, config.packageName)
+                    val errorOutput = withContext(Dispatchers.IO) {
+                        service.runPrivilegedCommand(args)
+                    }
+
+                    if (errorOutput.isBlank()) {
+                        if (config.kind == TargetKind.QS_TILE) {
+                            // Give SystemUI time to bind the TileService and invoke startActivityAndCollapse
+                            // before MainActivity removes its transparent window/task.
+                            delay(450L)
+                        }
+                        return@withContext RemoteIntentLauncher.LaunchOutcome.Launched
+                    } else if (
+                        errorOutput.contains("does not exist", ignoreCase = true) ||
+                        errorOutput.contains("unable to resolve", ignoreCase = true) ||
+                        errorOutput.contains("ActivityNotFoundException", ignoreCase = true)
                     ) {
-                        RemoteIntentLauncher.LaunchOutcome.AppNotInstalled(config.packageName)
+                        return@withContext if (
+                            config.packageName.isNotBlank() &&
+                            !RemoteIntentLauncher.isPackageInstalled(context, config.packageName)
+                        ) {
+                            RemoteIntentLauncher.LaunchOutcome.AppNotInstalled(config.packageName)
+                        } else {
+                            RemoteIntentLauncher.LaunchOutcome.ActivityNotFound(
+                                config.packageName,
+                                config.activityClass,
+                            )
+                        }
                     } else {
-                        RemoteIntentLauncher.LaunchOutcome.ActivityNotFound(
-                            config.packageName,
-                            config.activityClass,
-                        )
+                        return@withContext RemoteIntentLauncher.LaunchOutcome.Failed(errorOutput)
                     }
-                } else {
-                    RemoteIntentLauncher.LaunchOutcome.Failed(errorOutput)
-                }
-            } catch (t: Throwable) {
-                RemoteIntentLauncher.LaunchOutcome.Failed(t.localizedMessage)
-            } finally {
-                val conn = activeConnection
-                if (conn != null) {
-                    runCatching { Shizuku.unbindUserService(userServiceArgs, conn, true) }
+                } catch (t: Throwable) {
+                    lastFailure = t.localizedMessage
+                    if (attempt == 0) {
+                        delay(250L)
+                        continue
+                    }
+                    return@withContext RemoteIntentLauncher.LaunchOutcome.Failed(lastFailure)
+                } finally {
+                    val conn = activeConnection
+                    if (conn != null) {
+                        runCatching { Shizuku.unbindUserService(userServiceArgs, conn, false) }
+                    }
                 }
             }
+            RemoteIntentLauncher.LaunchOutcome.Failed(lastFailure)
         }
     }
 }

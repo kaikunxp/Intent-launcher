@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -28,11 +29,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
+
         val forceConfigure = intent?.action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT
         if (savedInstanceState == null) {
             viewModel.initialize(
                 forceConfigure = forceConfigure,
-                onAutoLaunchSucceeded = { finishAndRemoveTask() },
+                onAutoLaunchSucceeded = ::finishSilently,
             )
         }
 
@@ -231,12 +241,22 @@ class MainActivity : ComponentActivity() {
         val forceConfigure = intent.action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT
         viewModel.initialize(
             forceConfigure = forceConfigure,
-            onAutoLaunchSucceeded = { finishAndRemoveTask() },
+            onAutoLaunchSucceeded = ::finishSilently,
         )
     }
 
     override fun onResume() {
         super.onResume()
         viewModel.refreshInstallStatus()
+    }
+
+    private fun finishSilently() {
+        finishAndRemoveTask()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
     }
 }

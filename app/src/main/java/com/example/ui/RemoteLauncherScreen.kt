@@ -128,6 +128,11 @@ fun RemoteLauncherScreen(
     val glowSecondary = MaterialTheme.colorScheme.secondary
     val isShizukuConnected = SheveryBridge.isConnected(uiState.sheveryStatus)
 
+    if (uiState.isInitializing) {
+        Box(modifier = Modifier.fillMaxSize())
+        return
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -156,14 +161,6 @@ fun RemoteLauncherScreen(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
-        if (uiState.isInitializing) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
-            return@Scaffold
-        }
 
         Box(
             modifier = Modifier
