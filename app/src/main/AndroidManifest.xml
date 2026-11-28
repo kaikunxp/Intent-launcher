@@ -9,6 +9,7 @@
         <package android:name="com.android.settings" />
         <package android:name="com.hamondev.shevery" />
         <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.motorola.mykey" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
@@ -59,6 +60,11 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
+
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"

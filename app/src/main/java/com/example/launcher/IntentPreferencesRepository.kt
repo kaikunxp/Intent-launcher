@@ -38,6 +38,7 @@ class IntentPreferencesRepository(private val context: Context) {
             prefs[KEY_EXTRA_ARGS] = config.extraArgs.trim()
             prefs[KEY_AUTO_LAUNCH] = config.autoLaunchEnabled
             prefs[KEY_PREFER_PRIVILEGED] = config.preferPrivilegedLaunch
+            prefs[KEY_RETRY_TILE_IF_NO_SCREEN] = config.retryTileIfNoScreen
             prefs[KEY_TARGET_KIND] = config.kind.name
             prefs[KEY_HAS_SAVED_CONFIG] = true
         }
@@ -74,6 +75,7 @@ class IntentPreferencesRepository(private val context: Context) {
             extraArgs = prefs[KEY_EXTRA_ARGS].orEmpty(),
             autoLaunchEnabled = prefs[KEY_AUTO_LAUNCH] ?: true,
             preferPrivilegedLaunch = prefs[KEY_PREFER_PRIVILEGED] ?: true,
+            retryTileIfNoScreen = prefs[KEY_RETRY_TILE_IF_NO_SCREEN] ?: true,
             kind = kind,
             isConfigured = true,
         )
@@ -92,6 +94,7 @@ class IntentPreferencesRepository(private val context: Context) {
         val KEY_EXTRA_ARGS = stringPreferencesKey("target_extra_args")
         val KEY_AUTO_LAUNCH = booleanPreferencesKey("auto_launch_enabled")
         val KEY_PREFER_PRIVILEGED = booleanPreferencesKey("prefer_privileged_launch")
+        val KEY_RETRY_TILE_IF_NO_SCREEN = booleanPreferencesKey("retry_tile_if_no_screen")
         val KEY_TARGET_KIND = stringPreferencesKey("target_kind")
     }
 }

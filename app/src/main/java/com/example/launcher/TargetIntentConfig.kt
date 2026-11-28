@@ -11,6 +11,7 @@ data class TargetIntentConfig(
     val extraArgs: String = "",
     val autoLaunchEnabled: Boolean = true,
     val preferPrivilegedLaunch: Boolean = true,
+    val retryTileIfNoScreen: Boolean = true,
     val kind: TargetKind = TargetKind.ACTIVITY,
     val isConfigured: Boolean = false,
 ) {
@@ -50,8 +51,20 @@ data class TargetIntentConfig(
         const val GOOGLE_TV_REMOTE_LEGACY_ACTIVITY =
             "com.google.android.apps.play.movies.common.remote.RemoteDevicesListActivity"
         const val DEFAULT_PACKAGE = GOOGLE_TV_PACKAGE
+        const val MOTOROLA_MYKEY_PACKAGE = "com.motorola.mykey"
+        const val MOTOROLA_RED_KEY_ACTIVITY = "com.motorola.mykey.activity.RedKeyActivity"
 
         val Default = TargetIntentConfig()
+
+        val MotorolaRedKeyRemapper = TargetIntentConfig(
+            label = "Motorola Key Remapper",
+            packageName = MOTOROLA_MYKEY_PACKAGE,
+            activityClass = MOTOROLA_RED_KEY_ACTIVITY,
+            autoLaunchEnabled = false,
+            preferPrivilegedLaunch = true,
+            kind = TargetKind.ACTIVITY,
+            isConfigured = false,
+        )
 
         val Presets: List<IntentPreset> = listOf(
             IntentPreset(

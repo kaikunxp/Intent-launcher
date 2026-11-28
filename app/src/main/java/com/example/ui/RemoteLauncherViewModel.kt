@@ -50,6 +50,8 @@ data class RemoteLauncherUiState(
     val draftConfig: TargetIntentConfig = TargetIntentConfig.Default,
     val isTargetPackageInstalled: Boolean = false,
     val isGoogleTvInstalled: Boolean = false,
+    val isKeyRemapperInstalled: Boolean = false,
+    val keyRemapperPreflight: PreflightResult = PreflightResult(requiresShizuku = false),
     val sheveryStatus: SheveryBridge.BridgeStatus = SheveryBridge.BridgeStatus.NOT_INSTALLED,
     val sheveryDiagnostic: String = "",
     val isLaunchingViaShevery: Boolean = false,
@@ -110,7 +112,11 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         super.onCleared()
     }
 
-    fun initialize(forceConfigure: Boolean, onAutoLaunchSucceeded: () -> Unit) {
+    fun initialize(
+        forceConfigure: Boolean,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
+        onAutoLaunchSucceeded: () -> Unit,
+    ) {
         initializeJob?.cancel()
         initializeJob = viewModelScope.launch {
             if (!forceConfigure) {
@@ -120,10 +126,24 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             val app = getApplication<Application>()
 
             if (!forceConfigure && config.isConfigured && config.autoLaunchEnabled && config.isValid) {
-                val outcome = executeConfiguredLaunch(app, config)
+                val outcome = executeConfiguredLaunch(app, config, observer)
                 if (outcome is LaunchOutcome.Launched) {
                     onAutoLaunchSucceeded()
                     return@launch
+                }
+                val remapperInstalled = RemoteIntentLauncher.isPackageInstalled(
+                    app,
+                    TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE,
+                )
+                val remapperPreflight = withContext(Dispatchers.IO) {
+                    if (remapperInstalled) {
+                        RemoteIntentLauncher.checkNativeCompatibility(
+                            app,
+                            TargetIntentConfig.MotorolaRedKeyRemapper,
+                        )
+                    } else {
+                        PreflightResult(requiresShizuku = false)
+                    }
                 }
                 _uiState.update {
                     it.copy(
@@ -139,6 +159,8 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                             app,
                             RemoteIntentLauncher.GOOGLE_TV_PACKAGE,
                         ),
+                        isKeyRemapperInstalled = remapperInstalled,
+                        keyRemapperPreflight = remapperPreflight,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
                         shizukuHintPrompt = (outcome as? LaunchOutcome.ShizukuInstallRequired)
@@ -146,6 +168,20 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
             } else {
+                val remapperInstalled = RemoteIntentLauncher.isPackageInstalled(
+                    app,
+                    TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE,
+                )
+                val remapperPreflight = withContext(Dispatchers.IO) {
+                    if (remapperInstalled) {
+                        RemoteIntentLauncher.checkNativeCompatibility(
+                            app,
+                            TargetIntentConfig.MotorolaRedKeyRemapper,
+                        )
+                    } else {
+                        PreflightResult(requiresShizuku = false)
+                    }
+                }
                 _uiState.update {
                     it.copy(
                         isInitializing = false,
@@ -160,6 +196,8 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                             app,
                             RemoteIntentLauncher.GOOGLE_TV_PACKAGE,
                         ),
+                        isKeyRemapperInstalled = remapperInstalled,
+                        keyRemapperPreflight = remapperPreflight,
                         sheveryStatus = SheveryBridge.getStatus(app),
                         sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
                         shizukuHintPrompt = null,
@@ -270,6 +308,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
 
     fun applyParsedCommand(
         launchImmediately: Boolean,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
         onApplied: () -> Unit = {},
         onLaunchSucceeded: () -> Unit = {},
     ) {
@@ -283,7 +322,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(parsedAdbResult = parsed) }
         val config = parsed.config ?: return
         if (launchImmediately) {
-            saveAndLaunchConfig(config, onLaunchSucceeded)
+            saveAndLaunchConfig(config, observer, onLaunchSucceeded)
         } else {
             applyDraftConfig(config)
             onApplied()
@@ -314,6 +353,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         extraArgs: String? = null,
         autoLaunchEnabled: Boolean? = null,
         preferPrivilegedLaunch: Boolean? = null,
+        retryTileIfNoScreen: Boolean? = null,
         kind: TargetKind? = null,
     ) {
         val current = _uiState.value.draftConfig
@@ -326,6 +366,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             extraArgs = extraArgs ?: current.extraArgs,
             autoLaunchEnabled = autoLaunchEnabled ?: current.autoLaunchEnabled,
             preferPrivilegedLaunch = preferPrivilegedLaunch ?: current.preferPrivilegedLaunch,
+            retryTileIfNoScreen = retryTileIfNoScreen ?: current.retryTileIfNoScreen,
             kind = kind ?: current.kind,
             isConfigured = true,
         )
@@ -395,6 +436,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     fun selectAppIntentEntry(
         entry: AppIntentEntry,
         launchImmediately: Boolean,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
         onLaunchSucceeded: () -> Unit = {},
     ) {
         val appLabel = _uiState.value.inspectedAppResult?.appLabel.orEmpty()
@@ -422,7 +464,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         )
         dismissActivityInspector()
         if (launchImmediately) {
-            saveAndLaunchConfig(config, onLaunchSucceeded)
+            saveAndLaunchConfig(config, observer, onLaunchSucceeded)
         } else {
             applyDraftConfig(config)
         }
@@ -431,6 +473,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     fun selectInspectedActivity(
         activity: PackageActivityInfo,
         launchImmediately: Boolean,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
         onLaunchSucceeded: () -> Unit = {},
     ) {
         val pkg = _uiState.value.inspectedAppResult?.packageName ?: return
@@ -454,7 +497,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         )
         dismissActivityInspector()
         if (launchImmediately) {
-            saveAndLaunchConfig(config, onLaunchSucceeded)
+            saveAndLaunchConfig(config, observer, onLaunchSucceeded)
         } else {
             applyDraftConfig(config)
         }
@@ -469,19 +512,26 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun saveAndLaunch(onLaunchSucceeded: () -> Unit) {
-        saveAndLaunchConfig(_uiState.value.draftConfig, onLaunchSucceeded)
+    fun saveAndLaunch(
+        observer: SheveryBridge.LaunchProgressObserver? = null,
+        onLaunchSucceeded: () -> Unit,
+    ) {
+        saveAndLaunchConfig(_uiState.value.draftConfig, observer, onLaunchSucceeded)
     }
 
-    fun saveAndLaunchConfig(config: TargetIntentConfig, onLaunchSucceeded: () -> Unit) {
+    fun saveAndLaunchConfig(
+        config: TargetIntentConfig,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
+        onLaunchSucceeded: () -> Unit,
+    ) {
         val app = getApplication<Application>()
         val configured = config.copy(isConfigured = true)
         viewModelScope.launch {
             _uiState.update { it.copy(isLaunchingViaShevery = true, draftConfig = configured) }
             withContext(Dispatchers.IO) { repository.saveConfig(configured) }
-            val outcome = executeConfiguredLaunch(app, configured)
+            val outcome = executeConfiguredLaunch(app, configured, observer)
             if (outcome is LaunchOutcome.Launched) {
-                    _uiState.update {
+                _uiState.update {
                     it.copy(
                         savedConfig = configured,
                         launchOutcome = outcome,
@@ -512,12 +562,15 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun launchViaSheveryNow(onLaunchSucceeded: () -> Unit) {
+    fun launchViaSheveryNow(
+        observer: SheveryBridge.LaunchProgressObserver? = null,
+        onLaunchSucceeded: () -> Unit,
+    ) {
         val draft = _uiState.value.draftConfig
         val app = getApplication<Application>()
         viewModelScope.launch {
             _uiState.update { it.copy(isLaunchingViaShevery = true) }
-            val outcome = SheveryBridge.launchViaPrivilegedService(app, draft)
+            val outcome = SheveryBridge.launchViaPrivilegedService(app, draft, observer)
             if (outcome is LaunchOutcome.Launched) {
                 _uiState.update {
                     it.copy(
@@ -544,9 +597,62 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun openKeyRemapper(onUnavailable: () -> Unit) {
+        val app = getApplication<Application>()
+        val remapperConfig = TargetIntentConfig.MotorolaRedKeyRemapper
+        viewModelScope.launch {
+            val outcome = executeConfiguredLaunch(app, remapperConfig, observer = null)
+            when (outcome) {
+                is LaunchOutcome.Launched -> Unit
+                is LaunchOutcome.AppNotInstalled -> {
+                    onUnavailable()
+                }
+                is LaunchOutcome.ShizukuInstallRequired -> {
+                    _uiState.update {
+                        it.copy(
+                            shizukuHintPrompt = outcome.toHintPrompt(app, remapperConfig),
+                        )
+                    }
+                }
+                is LaunchOutcome.PermissionDenied,
+                LaunchOutcome.SheveryStubMissing,
+                LaunchOutcome.SheveryServiceNotRunning,
+                LaunchOutcome.SheveryPermissionRequired,
+                -> {
+                    val preflight = withContext(Dispatchers.IO) {
+                        RemoteIntentLauncher.checkNativeCompatibility(app, remapperConfig)
+                    }
+                    val status = SheveryBridge.getStatus(app)
+                    _uiState.update {
+                        it.copy(
+                            sheveryStatus = status,
+                            sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
+                            shizukuHintPrompt = ShizukuHintPrompt(
+                                targetLabel = remapperConfig.label,
+                                packageName = remapperConfig.packageName,
+                                reason = if (preflight.requiresShizuku) {
+                                    preflight.reason
+                                } else {
+                                    ShizukuRequirementReason.UNEXPORTED_ACTIVITY
+                                },
+                                requiredPermission = preflight.requiredPermission,
+                                bridgeStatus = status,
+                            ),
+                        )
+                    }
+                }
+                else -> onUnavailable()
+            }
+        }
+    }
+
     fun refreshInstallStatus() {
         val app = getApplication<Application>()
         val draftPkg = _uiState.value.draftConfig.packageName
+        val remapperInstalled = RemoteIntentLauncher.isPackageInstalled(
+            app,
+            TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE,
+        )
         _uiState.update {
             it.copy(
                 isTargetPackageInstalled = RemoteIntentLauncher.isPackageInstalled(app, draftPkg),
@@ -554,9 +660,23 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
                     app,
                     RemoteIntentLauncher.GOOGLE_TV_PACKAGE,
                 ),
+                isKeyRemapperInstalled = remapperInstalled,
                 sheveryStatus = SheveryBridge.getStatus(app),
                 sheveryDiagnostic = SheveryBridge.getDiagnosticLine(app),
             )
+        }
+        viewModelScope.launch {
+            val remapperPreflight = withContext(Dispatchers.IO) {
+                if (remapperInstalled) {
+                    RemoteIntentLauncher.checkNativeCompatibility(
+                        app,
+                        TargetIntentConfig.MotorolaRedKeyRemapper,
+                    )
+                } else {
+                    PreflightResult(requiresShizuku = false)
+                }
+            }
+            _uiState.update { it.copy(keyRemapperPreflight = remapperPreflight) }
         }
         loadPresetPreflight()
         if (_uiState.value.selectedTab == SelectorTab.APPS && _uiState.value.installedApps.isEmpty()) {
@@ -567,6 +687,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
     private suspend fun executeConfiguredLaunch(
         app: Application,
         config: TargetIntentConfig,
+        observer: SheveryBridge.LaunchProgressObserver? = null,
     ): LaunchOutcome {
         val hasShellExtras = config.extraArgs.isNotBlank()
         if (!hasShellExtras) {
@@ -599,7 +720,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
             if (!config.preferPrivilegedLaunch) {
                 return directOutcome
             }
-            return SheveryBridge.launchViaPrivilegedService(app, config)
+            return SheveryBridge.launchViaPrivilegedService(app, config, observer)
         }
 
         if (SheveryBridge.getStatus(app) == SheveryBridge.BridgeStatus.NOT_INSTALLED) {
@@ -613,7 +734,7 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
         if (!config.preferPrivilegedLaunch) {
             return LaunchOutcome.PermissionDenied(config.packageName, config.activityClass)
         }
-        return SheveryBridge.launchViaPrivilegedService(app, config)
+        return SheveryBridge.launchViaPrivilegedService(app, config, observer)
     }
 
     private fun LaunchOutcome.ShizukuInstallRequired.toHintPrompt(

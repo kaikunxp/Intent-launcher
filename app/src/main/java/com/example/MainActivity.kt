@@ -21,10 +21,36 @@ import com.example.launcher.SheveryBridge
 import com.example.ui.RemoteLauncherScreen
 import com.example.ui.RemoteLauncherViewModel
 import com.example.ui.theme.TvRemoteLauncherTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private val viewModel: RemoteLauncherViewModel by viewModels()
+    private val pausedSeq = MutableStateFlow(0L)
+    private val focusLostSeq = MutableStateFlow(0L)
+    private var hasHadWindowFocus = false
+
+    private val tileLaunchObserver = object : SheveryBridge.LaunchProgressObserver {
+        override fun snapshotYieldedSeq(): Long = pausedSeq.value + focusLostSeq.value
+
+        override suspend fun awaitYieldedSince(baselineSeq: Long, timeoutMs: Long): Boolean =
+            withTimeoutOrNull(timeoutMs) {
+                combine(pausedSeq, focusLostSeq) { paused, focusLost -> paused + focusLost }
+                    .first { it > baselineSeq }
+                true
+            } ?: false
+
+        override fun snapshotPausedSeq(): Long = pausedSeq.value
+
+        override suspend fun awaitPausedSince(baselineSeq: Long, timeoutMs: Long): Boolean =
+            withTimeoutOrNull(timeoutMs) {
+                pausedSeq.first { it > baselineSeq }
+                true
+            } ?: false
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,10 +64,11 @@ class MainActivity : ComponentActivity() {
             overridePendingTransition(0, 0)
         }
 
-        val forceConfigure = intent?.action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT
+        val forceConfigure = isConfigureIntent(intent)
         if (savedInstanceState == null) {
             viewModel.initialize(
                 forceConfigure = forceConfigure,
+                observer = tileLaunchObserver,
                 onAutoLaunchSucceeded = ::finishSilently,
             )
         }
@@ -96,7 +123,8 @@ class MainActivity : ComponentActivity() {
                     onRunParsedCommand = {
                         viewModel.applyParsedCommand(
                             launchImmediately = true,
-                            onLaunchSucceeded = { finishAndRemoveTask() },
+                            observer = tileLaunchObserver,
+                            onLaunchSucceeded = ::finishSilently,
                         )
                     },
                     onSelectPreset = { preset -> viewModel.applyDraftConfig(preset.config) },
@@ -107,7 +135,8 @@ class MainActivity : ComponentActivity() {
                         viewModel.selectAppIntentEntry(
                             entry = entry,
                             launchImmediately = runNow,
-                            onLaunchSucceeded = { finishAndRemoveTask() },
+                            observer = tileLaunchObserver,
+                            onLaunchSucceeded = ::finishSilently,
                         )
                         if (!runNow && !entry.exported && !uiState.draftConfig.preferPrivilegedLaunch) {
                             coroutineScope.launch {
@@ -121,7 +150,8 @@ class MainActivity : ComponentActivity() {
                         viewModel.selectInspectedActivity(
                             activity = activity,
                             launchImmediately = runNow,
-                            onLaunchSucceeded = { finishAndRemoveTask() },
+                            observer = tileLaunchObserver,
+                            onLaunchSucceeded = ::finishSilently,
                         )
                         if (!runNow && !activity.exported && !uiState.draftConfig.preferPrivilegedLaunch) {
                             coroutineScope.launch {
@@ -143,15 +173,28 @@ class MainActivity : ComponentActivity() {
                     onTogglePrivilegedLaunch = {
                         viewModel.updateDraftFields(preferPrivilegedLaunch = it)
                     },
+                    onToggleRetryTileIfNoScreen = {
+                        viewModel.updateDraftFields(retryTileIfNoScreen = it)
+                    },
                     onSaveAndLaunch = {
                         viewModel.saveAndLaunch(
-                            onLaunchSucceeded = { finishAndRemoveTask() },
+                            observer = tileLaunchObserver,
+                            onLaunchSucceeded = ::finishSilently,
                         )
                     },
                     onSaveOnly = {
                         viewModel.saveOnly {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar(getString(R.string.snackbar_saved))
+                            }
+                        }
+                    },
+                    onOpenKeyRemapper = {
+                        viewModel.openKeyRemapper {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    getString(R.string.snackbar_key_remapper_unavailable),
+                                )
                             }
                         }
                     },
@@ -166,7 +209,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onLaunchViaShevery = {
                         viewModel.launchViaSheveryNow(
-                            onLaunchSucceeded = { finishAndRemoveTask() },
+                            observer = tileLaunchObserver,
+                            onLaunchSucceeded = ::finishSilently,
                         )
                     },
                     onOpenShevery = {
@@ -238,9 +282,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val forceConfigure = intent.action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT
+        val forceConfigure = isConfigureIntent(intent)
         viewModel.initialize(
             forceConfigure = forceConfigure,
+            observer = tileLaunchObserver,
             onAutoLaunchSucceeded = ::finishSilently,
         )
     }
@@ -248,6 +293,26 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.refreshInstallStatus()
+    }
+
+    override fun onPause() {
+        pausedSeq.value += 1L
+        super.onPause()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hasHadWindowFocus = true
+        } else if (hasHadWindowFocus) {
+            focusLostSeq.value += 1L
+        }
+    }
+
+    private fun isConfigureIntent(intent: Intent?): Boolean {
+        val action = intent?.action ?: return false
+        return action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT ||
+            action == Intent.ACTION_APPLICATION_PREFERENCES
     }
 
     private fun finishSilently() {

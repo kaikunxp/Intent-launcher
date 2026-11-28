@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Shop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -111,8 +112,10 @@ fun RemoteLauncherScreen(
     onUpdateKind: (TargetKind) -> Unit,
     onToggleAutoLaunch: (Boolean) -> Unit,
     onTogglePrivilegedLaunch: (Boolean) -> Unit,
+    onToggleRetryTileIfNoScreen: (Boolean) -> Unit,
     onSaveAndLaunch: () -> Unit,
     onSaveOnly: () -> Unit,
+    onOpenKeyRemapper: () -> Unit,
     onRequestSheveryPermission: () -> Unit,
     onLaunchViaShevery: () -> Unit,
     onOpenShevery: () -> Unit,
@@ -193,6 +196,13 @@ fun RemoteLauncherScreen(
                         val label = uiState.draftConfig.label.ifBlank { pkg }
                         onBrowseActivities(label, pkg)
                     },
+                )
+
+                HardwareKeyRemapperCard(
+                    isInstalled = uiState.isKeyRemapperInstalled,
+                    requiresShizuku = uiState.keyRemapperPreflight.requiresShizuku,
+                    isShizukuConnected = isShizukuConnected,
+                    onClick = onOpenKeyRemapper,
                 )
 
                 SelectedTargetSummaryCard(
@@ -310,6 +320,7 @@ fun RemoteLauncherScreen(
                             onUpdateKind = onUpdateKind,
                             onToggleAutoLaunch = onToggleAutoLaunch,
                             onTogglePrivilegedLaunch = onTogglePrivilegedLaunch,
+                            onToggleRetryTileIfNoScreen = onToggleRetryTileIfNoScreen,
                             onInspectActivities = {
                                 val pkg = uiState.draftConfig.packageName
                                 val label = uiState.draftConfig.label.ifBlank { pkg }
@@ -870,6 +881,91 @@ private fun StatusBannerCard(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HardwareKeyRemapperCard(
+    isInstalled: Boolean,
+    requiresShizuku: Boolean,
+    isShizukuConnected: Boolean,
+    onClick: () -> Unit,
+) {
+    val showLockedBadge = isInstalled && requiresShizuku && !isShizukuConnected
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .testTag("open_key_remapper_button"),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isInstalled) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.TouchApp,
+                        contentDescription = stringResource(R.string.cd_key_remapper_icon),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.action_remap_hardware_key),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(
+                        if (isInstalled) {
+                            R.string.subtitle_remap_hardware_key
+                        } else {
+                            R.string.subtitle_remap_hardware_key_missing
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (showLockedBadge) {
+                ShizukuBadgePill(isLocked = true)
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }

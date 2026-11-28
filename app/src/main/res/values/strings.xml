@@ -62,6 +62,13 @@
     <string name="label_auto_launch_hint">Jumps straight to your saved intent on startup unless unavailable.</string>
     <string name="label_use_shevery">Use Shevery / Shizuku</string>
     <string name="label_use_shevery_hint">Run private activities, ADB commands, or Quick Settings tiles with shell privileges.</string>
+    <string name="label_retry_tile_screen">Tile opens a screen (auto-retry)</string>
+    <string name="label_retry_tile_screen_hint">If Android drops a cold tile click, briefly wake Quick Settings and retry once. Turn off for toggle tiles like Flashlight or Wi-Fi.</string>
+    <string name="action_remap_hardware_key">Remap Hardware Key</string>
+    <string name="subtitle_remap_hardware_key">Open Motorola Key settings (RedKeyActivity)</string>
+    <string name="subtitle_remap_hardware_key_missing">Motorola Key (com.motorola.mykey) not detected</string>
+    <string name="snackbar_key_remapper_unavailable">Motorola Key (com.motorola.mykey) is not installed on this device</string>
+    <string name="cd_key_remapper_icon">Open hardware key remapper</string>
     <string name="shevery_pill_ready">Shevery Ready</string>
     <string name="shevery_pill_permission">Grant Shevery Auth</string>
     <string name="shevery_pill_stub">Enable Stub</string>

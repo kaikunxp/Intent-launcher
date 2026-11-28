@@ -30,6 +30,13 @@ object SheveryBridge {
         NOT_INSTALLED,
     }
 
+    interface LaunchProgressObserver {
+        fun snapshotYieldedSeq(): Long
+        suspend fun awaitYieldedSince(baselineSeq: Long, timeoutMs: Long): Boolean
+        fun snapshotPausedSeq(): Long
+        suspend fun awaitPausedSince(baselineSeq: Long, timeoutMs: Long): Boolean
+    }
+
     fun isSheveryInstalled(context: Context): Boolean =
         RemoteIntentLauncher.isPackageInstalled(context, SHEVERY_PACKAGE)
 
@@ -236,6 +243,7 @@ object SheveryBridge {
     suspend fun launchViaPrivilegedService(
         context: Context,
         config: TargetIntentConfig,
+        observer: LaunchProgressObserver? = null,
     ): RemoteIntentLauncher.LaunchOutcome {
         val args = buildPrivilegedArgs(context, config)
             ?: return RemoteIntentLauncher.LaunchOutcome.InvalidTarget
@@ -326,15 +334,49 @@ object SheveryBridge {
                         return@withContext RemoteIntentLauncher.LaunchOutcome.Failed(lastFailure)
                     }
 
+                    val yieldedBaseline = observer?.snapshotYieldedSeq() ?: 0L
                     val errorOutput = withContext(Dispatchers.IO) {
                         service.runPrivilegedCommand(args)
                     }
 
                     if (errorOutput.isBlank()) {
                         if (config.kind == TargetKind.QS_TILE) {
-                            // Give SystemUI time to bind the TileService and invoke startActivityAndCollapse
-                            // before MainActivity removes its transparent window/task.
-                            delay(450L)
+                            if (observer != null) {
+                                val opened = observer.awaitYieldedSince(
+                                    baselineSeq = yieldedBaseline,
+                                    timeoutMs = 1_250L,
+                                )
+                                if (!opened && config.retryTileIfNoScreen) {
+                                    // SystemUI occasionally drops a cold click-tile when the shade is collapsed.
+                                    // Briefly expand Quick Settings so TileLifecycleManager binds and listens, then retry once.
+                                    val expandOut = withContext(Dispatchers.IO) {
+                                        service.runPrivilegedCommand(arrayOf("cmd", "statusbar", "expand-settings"))
+                                    }
+                                    if (expandOut.isBlank()) {
+                                        delay(280L)
+                                        val pausedBaseline = observer.snapshotPausedSeq()
+                                        val retryOut = withContext(Dispatchers.IO) {
+                                            service.runPrivilegedCommand(args)
+                                        }
+                                        val paused = if (retryOut.isBlank()) {
+                                            observer.awaitPausedSince(
+                                                baselineSeq = pausedBaseline,
+                                                timeoutMs = 950L,
+                                            )
+                                        } else {
+                                            false
+                                        }
+                                        if (!paused) {
+                                            withContext(Dispatchers.IO) {
+                                                service.runPrivilegedCommand(arrayOf("cmd", "statusbar", "collapse"))
+                                            }
+                                            delay(120L)
+                                        }
+                                    }
+                                }
+                            } else {
+                                delay(750L)
+                            }
                         }
                         return@withContext RemoteIntentLauncher.LaunchOutcome.Launched
                     } else if (

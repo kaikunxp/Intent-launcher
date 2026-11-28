@@ -649,6 +649,7 @@ fun CustomIntentTabContent(
     onUpdateKind: (TargetKind) -> Unit,
     onToggleAutoLaunch: (Boolean) -> Unit,
     onTogglePrivilegedLaunch: (Boolean) -> Unit,
+    onToggleRetryTileIfNoScreen: (Boolean) -> Unit,
     onInspectActivities: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -842,6 +843,42 @@ fun CustomIntentTabContent(
                     onCheckedChange = onTogglePrivilegedLaunch,
                     modifier = Modifier.testTag("use_shevery_switch"),
                 )
+            }
+        }
+
+        if (draftConfig.kind == TargetKind.QS_TILE) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_retry_tile_screen),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.label_retry_tile_screen_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = draftConfig.retryTileIfNoScreen,
+                        onCheckedChange = onToggleRetryTileIfNoScreen,
+                        modifier = Modifier.testTag("retry_tile_screen_switch"),
+                    )
+                }
             }
         }
     }
