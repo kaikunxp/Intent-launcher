@@ -6,7 +6,7 @@
 
 ## Download APK
 
-- **Latest APK (v11.0):** [**Download `ButtonIntentLauncher-v11.0.apk`**](releases/ButtonIntentLauncher-v11.0.apk)
+- **Latest APK (v12.0):** [**Download `ButtonIntentLauncher-v12.0.apk`**](releases/ButtonIntentLauncher-v12.0.apk)
 
 > **Install note:** Enable *Install unknown apps* if installing directly on Android. Updating from an earlier build keeps your saved target intact.
 
@@ -16,12 +16,14 @@
 
 | Home & App Browser | Per-App Intents Inspector | Shizuku-Locked Tiles | Shizuku / Shevery Prompt |
 | :---: | :---: | :---: | :---: |
-| <img src="docs/screenshots/apps-home.png" alt="Button Intent Launcher home screen and installed apps browser" width="210" /> | <img src="docs/screenshots/intents-sheet.png" alt="Per-app intents inspector bottom sheet for Android Settings" width="210" /> | <img src="docs/screenshots/tiles-locked.png" alt="Quick Settings tiles tab showing dimmed rows and Shizuku / Shevery lock pills" width="210" /> | <img src="docs/screenshots/shizuku-prompt.png" alt="Shizuku or Shevery required dialog when tapping a locked tile" width="210" /> |
+| <img src="docs/screenshots/apps-home.png" alt="Button Intent Launcher home screen showing Remap Hardware Key card and installed apps browser" width="210" /> | <img src="docs/screenshots/intents-sheet.png" alt="Per-app intents inspector bottom sheet for Android Settings" width="210" /> | <img src="docs/screenshots/tiles-locked.png" alt="Quick Settings tiles tab showing dimmed rows and Shizuku / Shevery lock pills" width="210" /> | <img src="docs/screenshots/shizuku-prompt.png" alt="Shizuku or Shevery required dialog when tapping a locked tile" width="210" /> |
 
 ---
 
 ## Features
 
+- **Brand-Aware Hardware Key Remapper**
+  - Auto-detects your device brand and installed key remappers to open the matching shortcut settings directly from the home screen (prefers **MotoKey+** with stock Motorola Key fallback on Motorola, native **Side button** / **XCover / Active key** with **Good Lock RegiStar** fallback on Samsung, **Quick Tap** on Pixel, or installed **Key Mapper** / **Button Mapper**), hiding automatically if none are present.
 - **Preflight Compatibility & Visual Gating**
   - Checks `PackageManager` upfront (`exported` state, required system permissions, Quick Settings tiles, and shell extras) so you know immediately what works without Shizuku.
   - Items that require privileged execution appear dimmed with a **`Shizuku / Shevery`** lock badge across the **Intents sheet**, **Tiles tab**, and **Presets tab** until Shizuku or Shevery is installed and connected.

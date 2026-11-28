@@ -1,5 +1,10 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -76,6 +82,7 @@ import com.example.launcher.PackageActivityInfo
 import com.example.launcher.PreflightResult
 import com.example.launcher.QsTileInfo
 import com.example.launcher.RemoteIntentLauncher.LaunchOutcome
+import com.example.launcher.ResolvedKeyRemapper
 import com.example.launcher.SheveryBridge
 import com.example.launcher.SheveryBridge.BridgeStatus
 import com.example.launcher.ShizukuRequirementReason
@@ -116,6 +123,7 @@ fun RemoteLauncherScreen(
     onSaveAndLaunch: () -> Unit,
     onSaveOnly: () -> Unit,
     onOpenKeyRemapper: () -> Unit,
+    onOpenFallbackKeyRemapper: () -> Unit,
     onRequestSheveryPermission: () -> Unit,
     onLaunchViaShevery: () -> Unit,
     onOpenShevery: () -> Unit,
@@ -198,12 +206,21 @@ fun RemoteLauncherScreen(
                     },
                 )
 
-                HardwareKeyRemapperCard(
-                    isInstalled = uiState.isKeyRemapperInstalled,
-                    requiresShizuku = uiState.keyRemapperPreflight.requiresShizuku,
-                    isShizukuConnected = isShizukuConnected,
-                    onClick = onOpenKeyRemapper,
-                )
+                AnimatedVisibility(
+                    visible = uiState.resolvedKeyRemapper != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    val resolvedRemapper = uiState.resolvedKeyRemapper
+                    if (resolvedRemapper != null) {
+                        HardwareKeyRemapperCard(
+                            remapper = resolvedRemapper,
+                            isShizukuConnected = isShizukuConnected,
+                            onClick = onOpenKeyRemapper,
+                            onFallbackClick = onOpenFallbackKeyRemapper,
+                        )
+                    }
+                }
 
                 SelectedTargetSummaryCard(
                     draftConfig = uiState.draftConfig,
@@ -888,84 +905,114 @@ private fun StatusBannerCard(
 
 @Composable
 private fun HardwareKeyRemapperCard(
-    isInstalled: Boolean,
-    requiresShizuku: Boolean,
+    remapper: ResolvedKeyRemapper,
     isShizukuConnected: Boolean,
     onClick: () -> Unit,
+    onFallbackClick: () -> Unit,
 ) {
-    val showLockedBadge = isInstalled && requiresShizuku && !isShizukuConnected
+    val primary = remapper.primary
+    val fallback = remapper.fallback
+    val showLockedBadge = primary.preflight.requiresShizuku && !isShizukuConnected
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .testTag("open_key_remapper_button"),
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(
             width = 1.dp,
-            color = if (isInstalled) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
-            },
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
         ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(40.dp),
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .testTag("open_key_remapper_button"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.TouchApp,
+                            contentDescription = stringResource(R.string.cd_key_remapper_icon),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = primary.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = primary.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (showLockedBadge) {
+                    ShizukuBadgePill(isLocked = true)
+                } else {
                     Icon(
-                        imageVector = Icons.Filled.TouchApp,
-                        contentDescription = stringResource(R.string.cd_key_remapper_icon),
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.action_remap_hardware_key),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            if (fallback != null) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(
-                        if (isInstalled) {
-                            R.string.subtitle_remap_hardware_key
-                        } else {
-                            R.string.subtitle_remap_hardware_key_missing
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            if (showLockedBadge) {
-                ShizukuBadgePill(isLocked = true)
-            } else {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(onClick = onFallbackClick)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .testTag("open_key_remapper_fallback_button"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.action_remap_fallback_chip, fallback.label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    if (fallback.preflight.requiresShizuku && !isShizukuConnected) {
+                        ShizukuBadgePill(isLocked = true)
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
             }
         }
     }

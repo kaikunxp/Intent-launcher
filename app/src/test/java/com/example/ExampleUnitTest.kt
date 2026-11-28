@@ -1,6 +1,11 @@
 package com.example
 
 import com.example.launcher.AdbCommandParser
+import com.example.launcher.KeyRemapperResolver
+import com.example.launcher.PreflightResult
+import com.example.launcher.RemapperProbeSnapshot
+import com.example.launcher.RemapperTarget
+import com.example.launcher.TargetIntentConfig
 import com.example.launcher.TargetKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -64,4 +69,79 @@ class ExampleUnitTest {
         val act = AdbCommandParser.parse("android.settings.APPLICATION_DEVELOPMENT_SETTINGS")
         assertEquals("android.settings.APPLICATION_DEVELOPMENT_SETTINGS", act.config?.action)
     }
+
+    @Test
+    fun motorolaPrefersMotoKeyPlusOverStockRedKey() {
+        val motoKeyPlus = sampleTarget("MotoKey+", "com.xandar.motokeyplus")
+        val motoStock = sampleTarget("Motorola Key Remapper", TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE)
+
+        val resolved = KeyRemapperResolver.resolveFromSnapshot(
+            RemapperProbeSnapshot(
+                manufacturer = "motorola",
+                brand = "motorola",
+                motoKeyPlus = motoKeyPlus,
+                motorolaStock = motoStock,
+            ),
+        )
+        assertEquals(motoKeyPlus, resolved?.primary)
+        assertEquals(motoStock, resolved?.fallback)
+
+        val stockOnly = KeyRemapperResolver.resolveFromSnapshot(
+            RemapperProbeSnapshot(
+                manufacturer = "motorola",
+                brand = "motorola",
+                motoKeyPlus = null,
+                motorolaStock = motoStock,
+            ),
+        )
+        assertEquals(motoStock, stockOnly?.primary)
+        assertNull(stockOnly?.fallback)
+    }
+
+    @Test
+    fun samsungPrefersSideButtonWithRegistarFallback() {
+        val sideButton = sampleTarget("Samsung Side Button", "com.android.settings")
+        val registar = sampleTarget("Good Lock RegiStar", KeyRemapperResolver.SAMSUNG_REGISTAR_PACKAGE)
+
+        val both = KeyRemapperResolver.resolveFromSnapshot(
+            RemapperProbeSnapshot(
+                manufacturer = "samsung",
+                brand = "samsung",
+                samsungSideKey = sideButton,
+                samsungRegistar = registar,
+            ),
+        )
+        assertEquals(sideButton, both?.primary)
+        assertEquals(registar, both?.fallback)
+
+        val registarOnly = KeyRemapperResolver.resolveFromSnapshot(
+            RemapperProbeSnapshot(
+                manufacturer = "samsung",
+                brand = "samsung",
+                samsungSideKey = null,
+                samsungRegistar = registar,
+            ),
+        )
+        assertEquals(registar, registarOnly?.primary)
+    }
+
+    @Test
+    fun hidesRemapperWhenNoExactTargetExists() {
+        val resolved = KeyRemapperResolver.resolveFromSnapshot(
+            RemapperProbeSnapshot(
+                manufacturer = "Generic",
+                brand = "Android",
+            ),
+        )
+        assertNull(resolved)
+    }
+
+    private fun sampleTarget(label: String, pkg: String): RemapperTarget =
+        RemapperTarget(
+            title = "Remap Hardware Key",
+            subtitle = label,
+            label = label,
+            config = TargetIntentConfig(label = label, packageName = pkg),
+            preflight = PreflightResult(requiresShizuku = false),
+        )
 }

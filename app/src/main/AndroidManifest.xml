@@ -10,6 +10,12 @@
         <package android:name="com.hamondev.shevery" />
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.motorola.mykey" />
+        <package android:name="com.samsung.android.sidekey" />
+        <package android:name="com.samsung.android.app.registar" />
+        <package android:name="com.samsung.android.app.goodlock" />
+        <package android:name="com.google.android.settings" />
+        <package android:name="io.github.sds100.keymapper" />
+        <package android:name="flar2.homebutton" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>

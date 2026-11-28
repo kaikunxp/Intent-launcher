@@ -190,7 +190,25 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onOpenKeyRemapper = {
-                        viewModel.openKeyRemapper {
+                        viewModel.openKeyRemapper(
+                            onFallbackUsed = { fallbackLabel ->
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.snackbar_key_remapper_fallback, fallbackLabel),
+                                    )
+                                }
+                            },
+                            onUnavailable = {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.snackbar_key_remapper_unavailable),
+                                    )
+                                }
+                            },
+                        )
+                    },
+                    onOpenFallbackKeyRemapper = {
+                        viewModel.openFallbackKeyRemapper {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar(
                                     getString(R.string.snackbar_key_remapper_unavailable),

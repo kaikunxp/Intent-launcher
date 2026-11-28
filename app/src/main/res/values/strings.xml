@@ -67,7 +67,9 @@
     <string name="action_remap_hardware_key">Remap Hardware Key</string>
     <string name="subtitle_remap_hardware_key">Open Motorola Key settings (RedKeyActivity)</string>
     <string name="subtitle_remap_hardware_key_missing">Motorola Key (com.motorola.mykey) not detected</string>
-    <string name="snackbar_key_remapper_unavailable">Motorola Key (com.motorola.mykey) is not installed on this device</string>
+    <string name="action_remap_fallback_chip">Fallback: %1$s</string>
+    <string name="snackbar_key_remapper_fallback">Opened fallback remapper: %1$s</string>
+    <string name="snackbar_key_remapper_unavailable">No supported key remapper screen was found on this device</string>
     <string name="cd_key_remapper_icon">Open hardware key remapper</string>
     <string name="shevery_pill_ready">Shevery Ready</string>
     <string name="shevery_pill_permission">Grant Shevery Auth</string>
