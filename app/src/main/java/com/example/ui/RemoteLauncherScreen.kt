@@ -1,9 +1,12 @@
 package com.example.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,16 +27,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -56,16 +62,21 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -74,6 +85,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.example.R
 import com.example.launcher.AppIntentEntry
 import com.example.launcher.InstalledAppInfo
@@ -144,165 +156,240 @@ fun RemoteLauncherScreen(
         return
     }
 
-    Scaffold(
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val showScrollToTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 2 }
+    }
+
+    val filteredApps = remember(uiState.installedApps, uiState.appSearchQuery) {
+        val query = uiState.appSearchQuery.trim().lowercase()
+        val items = if (query.isEmpty()) {
+            uiState.installedApps
+        } else {
+            uiState.installedApps.filter { it.searchKey.contains(query) }
+        }
+        StableList(items)
+    }
+
+    val filteredTiles = remember(uiState.qsTiles, uiState.tileSearchQuery) {
+        val query = uiState.tileSearchQuery.trim().lowercase()
+        val items = if (query.isEmpty()) {
+            uiState.qsTiles
+        } else {
+            uiState.qsTiles.filter { it.searchKey.contains(query) }
+        }
+        StableList(items)
+    }
+
+    val onBrowseApp = remember(onBrowseActivities) {
+        { appInfo: InstalledAppInfo -> onBrowseActivities(appInfo.label, appInfo.packageName) }
+    }
+    val onLockedTile = remember(onLockedTargetClick) {
+        { tile: QsTileInfo ->
+            onLockedTargetClick(
+                tile.label,
+                tile.packageName,
+                ShizukuRequirementReason.QUICK_SETTINGS_TILE,
+                null,
+            )
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(glowPrimary.copy(alpha = 0.14f), Color.Transparent),
-                        center = Offset(size.width * 0.5f, size.height * 0.12f),
-                        radius = size.minDimension * 0.72f,
-                    ),
-                    radius = size.minDimension * 0.72f,
-                    center = Offset(size.width * 0.5f, size.height * 0.12f),
+            .drawWithCache {
+                val primaryCenter = Offset(size.width * 0.5f, size.height * 0.12f)
+                val primaryRadius = size.minDimension * 0.72f
+                val primaryBrush = Brush.radialGradient(
+                    colors = listOf(glowPrimary.copy(alpha = 0.14f), Color.Transparent),
+                    center = primaryCenter,
+                    radius = primaryRadius,
                 )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(glowSecondary.copy(alpha = 0.09f), Color.Transparent),
-                        center = Offset(size.width * 0.85f, size.height * 0.88f),
-                        radius = size.minDimension * 0.6f,
-                    ),
-                    radius = size.minDimension * 0.6f,
-                    center = Offset(size.width * 0.85f, size.height * 0.88f),
+                val secondaryCenter = Offset(size.width * 0.85f, size.height * 0.88f)
+                val secondaryRadius = size.minDimension * 0.6f
+                val secondaryBrush = Brush.radialGradient(
+                    colors = listOf(glowSecondary.copy(alpha = 0.09f), Color.Transparent),
+                    center = secondaryCenter,
+                    radius = secondaryRadius,
                 )
+                onDrawBehind {
+                    drawCircle(
+                        brush = primaryBrush,
+                        radius = primaryRadius,
+                        center = primaryCenter,
+                    )
+                    drawCircle(
+                        brush = secondaryBrush,
+                        radius = secondaryRadius,
+                        center = secondaryCenter,
+                    )
+                }
             },
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-    ) { innerPadding ->
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 600.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                StatusBannerCard(
-                    outcome = uiState.launchOutcome,
-                    sheveryStatus = uiState.sheveryStatus,
-                    sheveryDiagnostic = uiState.sheveryDiagnostic,
-                    isGoogleTvInstalled = uiState.isGoogleTvInstalled,
-                    isTargetInstalled = uiState.isTargetPackageInstalled,
-                    onRequestSheveryPermission = onRequestSheveryPermission,
-                    onOpenShevery = onOpenShevery,
-                    onLaunchViaShevery = onLaunchViaShevery,
-                    onInstallShizuku = onInstallShizuku,
-                    onGetShevery = onGetShevery,
-                    onOpenGoogleTv = onOpenGoogleTv,
-                    onOpenPlayStore = onOpenPlayStore,
-                    onInspectPackage = { pkg ->
-                        val label = uiState.draftConfig.label.ifBlank { pkg }
-                        onBrowseActivities(label, pkg)
-                    },
-                )
-
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing,
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            floatingActionButton = {
                 AnimatedVisibility(
-                    visible = uiState.resolvedKeyRemapper != null,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
+                    visible = showScrollToTop,
+                    enter = fadeIn(animationSpec = tween(200)) +
+                        scaleIn(initialScale = 0.85f, animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(150)) +
+                        scaleOut(targetScale = 0.85f, animationSpec = tween(150)),
                 ) {
-                    val resolvedRemapper = uiState.resolvedKeyRemapper
-                    if (resolvedRemapper != null) {
-                        HardwareKeyRemapperCard(
-                            remapper = resolvedRemapper,
-                            isShizukuConnected = isShizukuConnected,
-                            onClick = onOpenKeyRemapper,
-                            onFallbackClick = onOpenFallbackKeyRemapper,
+                    SmallFloatingActionButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(0)
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .testTag("scroll_to_top_fab"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowUp,
+                            contentDescription = stringResource(R.string.cd_scroll_to_top),
                         )
                     }
                 }
-
-                SelectedTargetSummaryCard(
-                    draftConfig = uiState.draftConfig,
-                    isTargetInstalled = uiState.isTargetPackageInstalled,
-                    sheveryStatus = uiState.sheveryStatus,
-                    isLaunchingViaShevery = uiState.isLaunchingViaShevery,
-                    onSheveryPillClick = {
-                        when (uiState.sheveryStatus) {
-                            BridgeStatus.PERMISSION_REQUIRED -> onRequestSheveryPermission()
-                            BridgeStatus.NOT_INSTALLED -> Unit
-                            else -> onOpenShevery()
-                        }
-                    },
-                    onOpenPasteBox = onOpenPasteBox,
-                    onCopyComponent = onCopyComponent,
-                    onSaveAndLaunch = onSaveAndLaunch,
-                    onSaveOnly = onSaveOnly,
-                )
-
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.fillMaxWidth(),
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 600.dp),
+                    contentPadding = PaddingValues(
+                        start = 20.dp,
+                        end = 20.dp,
+                        top = 18.dp,
+                        bottom = 88.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    val tabs = listOf(
-                        SelectorTab.APPS to stringResource(R.string.tab_apps),
-                        SelectorTab.QS_TILES to stringResource(R.string.tab_qs_tiles),
-                        SelectorTab.PRESETS to stringResource(R.string.tab_presets),
-                        SelectorTab.CUSTOM to stringResource(R.string.tab_custom),
-                    )
-                    tabs.forEachIndexed { index, (tab, title) ->
-                        SegmentedButton(
-                            selected = uiState.selectedTab == tab,
-                            onClick = { onSelectTab(tab) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = tabs.size),
-                            modifier = Modifier.testTag("tab_${tab.name.lowercase()}"),
-                        ) {
-                            Text(
-                                text = title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    item(key = "status_banner", contentType = "status_banner") {
+                        StatusBannerCard(
+                            outcome = uiState.launchOutcome,
+                            sheveryStatus = uiState.sheveryStatus,
+                            sheveryDiagnostic = uiState.sheveryDiagnostic,
+                            isGoogleTvInstalled = uiState.isGoogleTvInstalled,
+                            isTargetInstalled = uiState.isTargetPackageInstalled,
+                            onRequestSheveryPermission = onRequestSheveryPermission,
+                            onOpenShevery = onOpenShevery,
+                            onLaunchViaShevery = onLaunchViaShevery,
+                            onInstallShizuku = onInstallShizuku,
+                            onGetShevery = onGetShevery,
+                            onOpenGoogleTv = onOpenGoogleTv,
+                            onOpenPlayStore = onOpenPlayStore,
+                            onInspectPackage = { pkg ->
+                                val label = uiState.draftConfig.label.ifBlank { pkg }
+                                onBrowseActivities(label, pkg)
+                            },
+                        )
+                    }
+
+                    if (uiState.resolvedKeyRemapper != null) {
+                        item(key = "hardware_key_remapper", contentType = "hardware_key_remapper") {
+                            HardwareKeyRemapperCard(
+                                remapper = uiState.resolvedKeyRemapper,
+                                isShizukuConnected = isShizukuConnected,
+                                onClick = onOpenKeyRemapper,
+                                onFallbackClick = onOpenFallbackKeyRemapper,
                             )
                         }
                     }
-                }
 
-                when (uiState.selectedTab) {
-                    SelectorTab.APPS -> {
-                        InstalledAppsTabContent(
-                            apps = uiState.installedApps,
+                    item(key = "selected_target_summary", contentType = "selected_target_summary") {
+                        SelectedTargetSummaryCard(
+                            draftConfig = uiState.draftConfig,
+                            isTargetInstalled = uiState.isTargetPackageInstalled,
+                            sheveryStatus = uiState.sheveryStatus,
+                            isLaunchingViaShevery = uiState.isLaunchingViaShevery,
+                            onSheveryPillClick = {
+                                when (uiState.sheveryStatus) {
+                                    BridgeStatus.PERMISSION_REQUIRED -> onRequestSheveryPermission()
+                                    BridgeStatus.NOT_INSTALLED -> Unit
+                                    else -> onOpenShevery()
+                                }
+                            },
+                            onOpenPasteBox = onOpenPasteBox,
+                            onCopyComponent = onCopyComponent,
+                            onSaveAndLaunch = onSaveAndLaunch,
+                            onSaveOnly = onSaveOnly,
+                        )
+                    }
+
+                    item(key = "selector_tabs", contentType = "selector_tabs") {
+                        val tabs = listOf(
+                            SelectorTab.APPS to stringResource(R.string.tab_apps),
+                            SelectorTab.QS_TILES to stringResource(R.string.tab_qs_tiles),
+                            SelectorTab.PRESETS to stringResource(R.string.tab_presets),
+                            SelectorTab.CUSTOM to stringResource(R.string.tab_custom),
+                        )
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                        ) {
+                            tabs.forEachIndexed { index, (tab, title) ->
+                                SegmentedButton(
+                                    selected = uiState.selectedTab == tab,
+                                    onClick = { onSelectTab(tab) },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = tabs.size,
+                                    ),
+                                    modifier = Modifier.testTag("tab_${tab.name.lowercase()}"),
+                                ) {
+                                    Text(
+                                        text = title,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    when (uiState.selectedTab) {
+                        SelectorTab.APPS -> installedAppsItems(
+                            filteredApps = filteredApps,
                             isLoading = uiState.isLoadingApps,
                             searchQuery = uiState.appSearchQuery,
                             selectedPackage = uiState.draftConfig.packageName,
                             selectedActivity = uiState.draftConfig.activityClass,
                             onSearchQueryChange = onSearchQueryChange,
                             onSelectApp = onSelectApp,
-                            onBrowseActivities = { appInfo ->
-                                onBrowseActivities(appInfo.label, appInfo.packageName)
-                            },
+                            onBrowseActivities = onBrowseApp,
                         )
-                    }
 
-                    SelectorTab.QS_TILES -> {
-                        QsTilesTabContent(
-                            tiles = uiState.qsTiles,
+                        SelectorTab.QS_TILES -> qsTilesItems(
+                            filteredTiles = filteredTiles,
                             isLoading = uiState.isLoadingTiles,
                             searchQuery = uiState.tileSearchQuery,
                             selectedConfig = uiState.draftConfig,
                             isShizukuConnected = isShizukuConnected,
                             onSearchQueryChange = onTileSearchQueryChange,
                             onSelectTile = onSelectQsTile,
-                            onLockedTileClick = { tile ->
-                                onLockedTargetClick(
-                                    tile.label,
-                                    tile.packageName,
-                                    ShizukuRequirementReason.QUICK_SETTINGS_TILE,
-                                    null,
-                                )
-                            },
+                            onLockedTileClick = onLockedTile,
                         )
-                    }
 
-                    SelectorTab.PRESETS -> {
-                        PresetsTabContent(
+                        SelectorTab.PRESETS -> presetsItems(
                             selectedConfig = uiState.draftConfig,
                             presetPreflight = uiState.presetPreflight,
                             isShizukuConnected = isShizukuConnected,
@@ -316,10 +403,8 @@ fun RemoteLauncherScreen(
                                 )
                             },
                         )
-                    }
 
-                    SelectorTab.CUSTOM -> {
-                        CustomIntentTabContent(
+                        SelectorTab.CUSTOM -> customIntentItems(
                             draftConfig = uiState.draftConfig,
                             isTargetInstalled = uiState.isTargetPackageInstalled,
                             pasteText = uiState.pasteCommandText,
@@ -346,8 +431,6 @@ fun RemoteLauncherScreen(
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }

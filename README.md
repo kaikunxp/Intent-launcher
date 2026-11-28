@@ -6,7 +6,7 @@
 
 ## Download APK
 
-- **Latest APK (v12.0):** [**Download `ButtonIntentLauncher-v12.0.apk`**](releases/ButtonIntentLauncher-v12.0.apk)
+- **Latest APK (v12.1):** [**Download `ButtonIntentLauncher-v12.1.apk`**](releases/ButtonIntentLauncher-v12.1.apk)
 
 > **Install note:** Enable *Install unknown apps* if installing directly on Android. Updating from an earlier build keeps your saved target intact.
 

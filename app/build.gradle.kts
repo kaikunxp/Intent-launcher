@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.tvremotelauncher.kqvmxz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 12
-    versionName = "12.0"
+    versionCode = 13
+    versionName = "12.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,14 +13,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.launcher.RemoteIntentLauncher
 import com.example.launcher.SheveryBridge
 import com.example.ui.RemoteLauncherScreen
 import com.example.ui.RemoteLauncherViewModel
+import com.example.ui.theme.MidnightBg
 import com.example.ui.theme.TvRemoteLauncherTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -83,6 +87,12 @@ class MainActivity : ComponentActivity() {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val coroutineScope = rememberCoroutineScope()
+
+                LaunchedEffect(uiState.isInitializing) {
+                    if (!uiState.isInitializing) {
+                        applyOpaqueConfigWindow()
+                    }
+                }
 
                 RemoteLauncherScreen(
                     uiState = uiState,
@@ -301,6 +311,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val forceConfigure = isConfigureIntent(intent)
+        if (!forceConfigure) {
+            applyTranslucentWindow()
+        }
         viewModel.initialize(
             forceConfigure = forceConfigure,
             observer = tileLaunchObserver,
@@ -331,6 +344,23 @@ class MainActivity : ComponentActivity() {
         val action = intent?.action ?: return false
         return action == RemoteIntentLauncher.ACTION_CONFIGURE_INTENT ||
             action == Intent.ACTION_APPLICATION_PREFERENCES
+    }
+
+    private fun applyTranslucentWindow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            setTranslucent(true)
+        }
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+    }
+
+    private fun applyOpaqueConfigWindow() {
+        val opaqueBg = MidnightBg.toArgb()
+        window.setBackgroundDrawable(ColorDrawable(opaqueBg))
+        window.decorView.setBackgroundColor(opaqueBg)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            setTranslucent(false)
+        }
     }
 
     private fun finishSilently() {

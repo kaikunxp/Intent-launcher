@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.launcher.AdbCommandParser
@@ -37,6 +38,7 @@ enum class SelectorTab {
     CUSTOM,
 }
 
+@Immutable
 data class ShizukuHintPrompt(
     val targetLabel: String = "",
     val packageName: String = "",
@@ -45,6 +47,7 @@ data class ShizukuHintPrompt(
     val bridgeStatus: SheveryBridge.BridgeStatus = SheveryBridge.BridgeStatus.NOT_INSTALLED,
 )
 
+@Immutable
 data class RemoteLauncherUiState(
     val isInitializing: Boolean = true,
     val launchOutcome: LaunchOutcome = LaunchOutcome.Idle,
@@ -783,8 +786,11 @@ class RemoteLauncherViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadDiscoveryData() {
         loadPresetPreflight()
-        loadInstalledAppsIfNeeded()
-        loadQsTilesIfNeeded()
+        when (_uiState.value.selectedTab) {
+            SelectorTab.APPS -> loadInstalledAppsIfNeeded()
+            SelectorTab.QS_TILES -> loadQsTilesIfNeeded()
+            else -> Unit
+        }
     }
 
     private fun loadPresetPreflight() {

@@ -7,10 +7,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.ContextCompat
@@ -24,20 +28,24 @@ enum class ShizukuRequirementReason {
     SHELL_EXTRA_FLAGS,
 }
 
+@Immutable
 data class PreflightResult(
     val requiresShizuku: Boolean,
     val reason: ShizukuRequirementReason = ShizukuRequirementReason.NONE,
     val requiredPermission: String? = null,
 )
 
+@Immutable
 data class InstalledAppInfo(
     val label: String,
     val packageName: String,
     val launcherActivity: String,
     val icon: ImageBitmap?,
     val hasLauncherEntry: Boolean = true,
+    val searchKey: String = "${label.lowercase()}\n${packageName.lowercase()}\n${launcherActivity.lowercase()}",
 )
 
+@Immutable
 data class PackageActivityInfo(
     val className: String,
     val shortName: String,
@@ -49,6 +57,7 @@ data class PackageActivityInfo(
         if (!exported) ShizukuRequirementReason.UNEXPORTED_ACTIVITY else ShizukuRequirementReason.NONE,
 )
 
+@Immutable
 data class AppIntentEntry(
     val title: String,
     val subtitle: String,
@@ -67,6 +76,7 @@ data class AppIntentEntry(
         if (!exported) ShizukuRequirementReason.UNEXPORTED_ACTIVITY else ShizukuRequirementReason.NONE,
 )
 
+@Immutable
 data class AppInspectionResult(
     val appLabel: String,
     val packageName: String,
@@ -74,12 +84,14 @@ data class AppInspectionResult(
     val activities: List<PackageActivityInfo>,
 )
 
+@Immutable
 data class QsTileInfo(
     val label: String,
     val packageName: String,
     val serviceClass: String,
     val icon: ImageBitmap?,
     val appLabel: String,
+    val searchKey: String = "${label.lowercase()}\n${appLabel.lowercase()}\n${packageName.lowercase()}\n${serviceClass.lowercase()}",
 )
 
 object RemoteIntentLauncher {
@@ -613,14 +625,30 @@ object RemoteIntentLauncher {
     }
 
     private fun Drawable.toScaledImageBitmap(sizePx: Int): ImageBitmap {
-        if (this is BitmapDrawable && bitmap != null) {
-            val scaled = Bitmap.createScaledBitmap(bitmap, sizePx, sizePx, true)
-            return scaled.asImageBitmap()
+        val output = createBitmap(sizePx, sizePx)
+        val canvas = Canvas(output)
+        val radius = sizePx * 0.25f
+        val clipPath = Path().apply {
+            addRoundRect(
+                RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat()),
+                radius,
+                radius,
+                Path.Direction.CW,
+            )
         }
-        val bitmap = createBitmap(sizePx, sizePx)
-        val canvas = Canvas(bitmap)
-        setBounds(0, 0, canvas.width, canvas.height)
-        draw(canvas)
-        return bitmap.asImageBitmap()
+        canvas.clipPath(clipPath)
+        if (this is BitmapDrawable && bitmap != null) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat()),
+                paint,
+            )
+        } else {
+            setBounds(0, 0, sizePx, sizePx)
+            draw(canvas)
+        }
+        return output.asImageBitmap()
     }
 }

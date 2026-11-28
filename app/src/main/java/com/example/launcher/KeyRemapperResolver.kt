@@ -2,7 +2,9 @@ package com.example.launcher
 
 import android.content.Context
 import android.os.Build
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class RemapperTarget(
     val title: String,
     val subtitle: String,
@@ -11,6 +13,7 @@ data class RemapperTarget(
     val preflight: PreflightResult,
 )
 
+@Immutable
 data class ResolvedKeyRemapper(
     val primary: RemapperTarget,
     val fallback: RemapperTarget? = null,

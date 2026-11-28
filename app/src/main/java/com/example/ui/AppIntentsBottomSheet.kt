@@ -2,7 +2,6 @@ package com.example.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,24 +69,29 @@ fun AppIntentsBottomSheet(
         var exportedOnly by remember(inspection.packageName) { mutableStateOf(defaultExportedOnly) }
         var searchQuery by remember(inspection.packageName) { mutableStateOf("") }
 
-        val query = searchQuery.trim().lowercase()
-        val visibleIntents = inspection.intents.filter { entry ->
-            val matchesExported = !exportedOnly || !entry.requiresShizuku
-            val matchesQuery = query.isEmpty() ||
-                entry.title.lowercase().contains(query) ||
-                entry.subtitle.lowercase().contains(query) ||
-                entry.badge.lowercase().contains(query) ||
-                entry.action.lowercase().contains(query)
-            matchesExported && matchesQuery
+        val visibleIntents = remember(inspection.intents, exportedOnly, searchQuery) {
+            val query = searchQuery.trim().lowercase()
+            inspection.intents.filter { entry ->
+                val matchesExported = !exportedOnly || !entry.requiresShizuku
+                val matchesQuery = query.isEmpty() ||
+                    entry.title.lowercase().contains(query) ||
+                    entry.subtitle.lowercase().contains(query) ||
+                    entry.badge.lowercase().contains(query) ||
+                    entry.action.lowercase().contains(query)
+                matchesExported && matchesQuery
+            }
         }
 
-        val visibleActivities = inspection.activities.filter { act ->
-            val matchesExported = !exportedOnly || !act.requiresShizuku
-            val matchesQuery = query.isEmpty() ||
-                act.shortName.lowercase().contains(query) ||
-                act.className.lowercase().contains(query) ||
-                act.label.lowercase().contains(query)
-            matchesExported && matchesQuery
+        val visibleActivities = remember(inspection.activities, exportedOnly, searchQuery) {
+            val query = searchQuery.trim().lowercase()
+            inspection.activities.filter { act ->
+                val matchesExported = !exportedOnly || !act.requiresShizuku
+                val matchesQuery = query.isEmpty() ||
+                    act.shortName.lowercase().contains(query) ||
+                    act.className.lowercase().contains(query) ||
+                    act.label.lowercase().contains(query)
+                matchesExported && matchesQuery
+            }
         }
 
         Column(
@@ -241,12 +245,10 @@ private fun AppIntentEntryRow(
 ) {
     val isLocked = entry.requiresShizuku && !isShizukuConnected
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable {
-                if (isLocked) onLockedClick() else onSelect()
-            },
+        onClick = {
+            if (isLocked) onLockedClick() else onSelect()
+        },
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         color = if (isLocked) {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
@@ -338,12 +340,10 @@ private fun DeclaredActivityRow(
 ) {
     val isLocked = activity.requiresShizuku && !isShizukuConnected
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable {
-                if (isLocked) onLockedClick() else onSelect()
-            },
+        onClick = {
+            if (isLocked) onLockedClick() else onSelect()
+        },
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         color = if (isLocked) {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)

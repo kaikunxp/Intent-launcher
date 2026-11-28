@@ -53,8 +53,20 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Build Debug APK
-        run: gradle :app:assembleDebug
+      - name: Build Optimized Release APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/ci-release.keystore
+          STORE_PASSWORD: android
+          KEY_PASSWORD: android
+        run: |
+          cp debug.keystore "$KEYSTORE_PATH"
+          keytool -changealias \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass android \
+            -alias androiddebugkey \
+            -destalias upload
+          gradle :app:assembleRelease
+          rm -f "$KEYSTORE_PATH"
 
       - name: Prepare named APK
         id: meta
@@ -62,7 +74,12 @@ jobs:
           VERSION_NAME=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           mkdir -p build-release
-          cp app/build/outputs/apk/debug/app-debug.apk "build-release/ButtonIntentLauncher-v${VERSION_NAME}.apk"
+          APK_OUT="build-release/ButtonIntentLauncher-v${VERSION_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK_OUT"
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner | sort -V | tail -n1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK_OUT"
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

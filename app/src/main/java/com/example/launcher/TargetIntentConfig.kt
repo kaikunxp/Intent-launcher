@@ -1,5 +1,8 @@
 package com.example.launcher
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class TargetIntentConfig(
     val label: String = "",
     val packageName: String = "",
@@ -170,6 +173,7 @@ enum class TargetKind {
     QS_TILE,
 }
 
+@Immutable
 data class IntentPreset(
     val id: String,
     val title: String,
