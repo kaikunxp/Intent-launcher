@@ -592,7 +592,7 @@ object RemoteIntentLauncher {
     ) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         pm.queryIntentActivities(
             intent,
-            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()),
+            PackageManager.ResolveInfoFlags.of(0L),
         )
     } else {
         @Suppress("DEPRECATION")

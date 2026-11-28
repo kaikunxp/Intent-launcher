@@ -27,21 +27,20 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -f debug.keystore.base64 ]; then
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > debug.keystore
+            echo "Using keystore from DEBUG_KEYSTORE_BASE64 secret"
+          elif [ -f .github/signing/ci-debug.keystore ]; then
+            cp .github/signing/ci-debug.keystore debug.keystore
+            echo "Using persistent repository CI keystore (.github/signing/ci-debug.keystore)"
+          elif [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
-          elif [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > debug.keystore
-          elif [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+            echo "Using repository debug.keystore.base64"
+          else
+            echo "::error::No persistent signing keystore found. Refusing to generate a random certificate."
+            exit 1
           fi
+          keytool -list -keystore debug.keystore -storepass android | grep -E "Alias name:|Certificate fingerprint"
 
       - name: Accept Android SDK licenses
         run: |

@@ -72,7 +72,8 @@ class ExampleUnitTest {
 
     @Test
     fun motorolaPrefersMotoKeyPlusOverStockRedKey() {
-        val motoKeyPlus = sampleTarget("MotoKey+", "com.xandar.motokeyplus")
+        val motoKeyPlus = sampleTarget("MotoKey+", KeyRemapperResolver.MOTO_KEY_PLUS_PACKAGE)
+        assertEquals("app.xandar.motokeyplus", KeyRemapperResolver.MOTO_KEY_PLUS_PACKAGE)
         val motoStock = sampleTarget("Motorola Key Remapper", TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE)
 
         val resolved = KeyRemapperResolver.resolveFromSnapshot(

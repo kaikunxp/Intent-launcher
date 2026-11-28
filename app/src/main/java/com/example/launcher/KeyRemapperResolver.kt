@@ -28,6 +28,7 @@ internal data class RemapperProbeSnapshot(
 )
 
 object KeyRemapperResolver {
+    const val MOTO_KEY_PLUS_PACKAGE = "app.xandar.motokeyplus"
     const val SAMSUNG_SETTINGS_PACKAGE = "com.android.settings"
     const val SAMSUNG_SIDEKEY_PACKAGE = "com.samsung.android.sidekey"
     const val SAMSUNG_REGISTAR_PACKAGE = "com.samsung.android.app.registar"
@@ -126,27 +127,39 @@ object KeyRemapperResolver {
     }
 
     private fun findMotoKeyPlusTarget(context: Context): RemapperTarget? {
+        findLaunchableAppTarget(
+            context = context,
+            packageName = MOTO_KEY_PLUS_PACKAGE,
+            displayLabel = "MotoKey+",
+            subtitle = "Open MotoKey+ remapper",
+        )?.let { return it }
+
         val apps = RemoteIntentLauncher.queryLaunchableApps(context)
         val match = apps.firstOrNull { app ->
-            app.hasLauncherEntry &&
-                app.packageName != TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE &&
+            app.packageName != TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE &&
                 (
-                    app.label.contains("motokey+", ignoreCase = true) ||
+                    app.packageName == MOTO_KEY_PLUS_PACKAGE ||
+                        app.label.contains("motokey+", ignoreCase = true) ||
                         app.label.contains("motokey plus", ignoreCase = true)
                     )
         } ?: apps.firstOrNull { app ->
-            app.hasLauncherEntry &&
-                app.packageName != TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE &&
+            app.packageName != TargetIntentConfig.MOTOROLA_MYKEY_PACKAGE &&
                 (
                     app.label.equals("MotoKey", ignoreCase = true) ||
                         app.packageName.contains("motokey", ignoreCase = true)
                     )
         } ?: return null
 
+        val activityClass = match.launcherActivity.ifBlank {
+            val declared = RemoteIntentLauncher.queryPackageActivities(context, match.packageName)
+            declared.firstOrNull { it.exported }?.className
+                ?: declared.firstOrNull()?.className.orEmpty()
+        }
+
         val config = TargetIntentConfig(
             label = match.label,
             packageName = match.packageName,
-            activityClass = match.launcherActivity,
+            activityClass = activityClass,
             autoLaunchEnabled = false,
             preferPrivilegedLaunch = true,
             kind = TargetKind.ACTIVITY,
@@ -354,8 +367,12 @@ object KeyRemapperResolver {
             activityClass = declared.firstOrNull {
                 it.exported && (
                     it.shortName.contains("Main", ignoreCase = true) ||
+                        it.shortName.contains("Home", ignoreCase = true) ||
                         it.shortName.contains("Splash", ignoreCase = true) ||
-                        it.shortName.contains("Setting", ignoreCase = true)
+                        it.shortName.contains("Setting", ignoreCase = true) ||
+                        it.shortName.contains("Config", ignoreCase = true) ||
+                        it.shortName.contains("Remap", ignoreCase = true) ||
+                        it.shortName.contains("Setup", ignoreCase = true)
                     )
             }?.className
                 ?: declared.firstOrNull { it.exported }?.className

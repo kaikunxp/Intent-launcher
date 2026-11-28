@@ -9,6 +9,7 @@
         <package android:name="com.android.settings" />
         <package android:name="com.hamondev.shevery" />
         <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="app.xandar.motokeyplus" />
         <package android:name="com.motorola.mykey" />
         <package android:name="com.samsung.android.sidekey" />
         <package android:name="com.samsung.android.app.registar" />
